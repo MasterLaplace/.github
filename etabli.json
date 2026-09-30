@@ -136,6 +136,13 @@
         "security",
         "rulesets"
       ]
+    },
+    "MasterLaplace/.github": {
+      "only": [
+        "settings",
+        "security",
+        "rulesets"
+      ]
     }
   }
 }
