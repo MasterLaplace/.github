@@ -1,0 +1,38 @@
+name: Bug
+description: Something does not do what it promises
+labels: ["type:bug"]
+body:
+  - type: textarea
+    id: happened
+    attributes:
+      label: What happened
+      description: What you saw, with the exact message or output.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What should have happened
+      description: The behaviour you expected, and where it is promised (docs, --help, a test) if you know.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: How to reproduce
+      description: The smallest sequence of commands or steps that shows it, from a fresh clone if possible.
+      render: shell
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Version or commit
+      description: A tag, or the output of git rev-parse --short HEAD.
+    validations:
+      required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: OS, compiler or runtime versions, anything that differs from the README.

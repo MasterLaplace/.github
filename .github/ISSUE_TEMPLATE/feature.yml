@@ -1,0 +1,30 @@
+name: Feature
+description: A capability that does not exist yet
+labels: ["type:feature"]
+body:
+  - type: textarea
+    id: asked
+    attributes:
+      label: What is asked
+      description: The behaviour someone could observe once it exists. Not the solution you have in mind, the need behind it.
+    validations:
+      required: true
+  - type: textarea
+    id: today
+    attributes:
+      label: What is true today
+      description: How it works now, or why it cannot be done now.
+    validations:
+      required: true
+  - type: textarea
+    id: missing
+    attributes:
+      label: What is missing
+      description: What stands between today and what is asked, if you know.
+  - type: textarea
+    id: done
+    attributes:
+      label: How we will know it is done
+      description: A check anyone can run and that would fail today.
+    validations:
+      required: true

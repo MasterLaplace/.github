@@ -1,0 +1,65 @@
+title: "[Report] "
+labels: ["abuse"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Use this form to report harassment, abuse, or any other breach of the code of conduct in this
+        repository or its community.
+
+        This discussion is public, and it is where the report is handled: maintainers answer here
+        and nowhere else.
+
+        **Never paste personal information here**, yours or anyone else's: no address, phone number,
+        real name that was not already public, or private message. Link to where it appears instead.
+        If the problem is that someone published personal information, or if content must disappear
+        rather than be discussed, use GitHub's **Report content** in the `...` menu of the comment,
+        issue or discussion: that report goes privately to GitHub, not to this thread.
+
+  - type: input
+    id: summary
+    attributes:
+      label: Short summary
+      description: One line, for example "Harassment in issue #123".
+    validations:
+      required: true
+
+  - type: input
+    id: date
+    attributes:
+      label: Date
+      description: When it happened, as YYYY-MM-DD if you know.
+
+  - type: dropdown
+    id: kind
+    attributes:
+      label: Kind
+      options:
+        - Harassment or personal attack
+        - Discriminatory language
+        - Spam or promotion
+        - Impersonation
+        - Other breach of the code of conduct
+    validations:
+      required: true
+
+  - type: textarea
+    id: links
+    attributes:
+      label: Where it happened
+      description: Links to the issues, pull requests, comments or discussions. Links, not copies.
+    validations:
+      required: true
+
+  - type: textarea
+    id: details
+    attributes:
+      label: What happened
+      description: What you saw and why it breaks the code of conduct, without repeating personal information.
+    validations:
+      required: true
+
+  - type: markdown
+    attributes:
+      value: |
+        Thank you for reporting it. The maintainers will answer in this thread.
