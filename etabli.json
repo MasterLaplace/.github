@@ -126,10 +126,15 @@
         }
       }
     },
-    "MasterLaplace/LplKernel": {},
+    "MasterLaplace/LplKernel": {
+      "only": [
+        "labels",
+        "settings",
+        "security"
+      ]
+    },
     "MasterLaplace/LplPlugin": {},
     "MasterLaplace/LplKnowledge": {},
-    "Christian-guajardo/LplAssistant": {},
     "MasterLaplace/LplVesuvius": {
       "only": [
         "settings",
