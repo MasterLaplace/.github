@@ -1,0 +1,91 @@
+name: Release tools
+
+on:
+  pull_request:
+    paths:
+      - "actions/release/**"
+      - "templates/cliff.toml"
+      - "tools/changelog.sh"
+      - "tools/git-cliff.requirements.txt"
+      - "tools/install-git-cliff.sh"
+      - "tools/release.sh"
+      - "tools/test-release.sh"
+      - ".github/workflows/release-tools.yml"
+  push:
+    branches: [main]
+    paths:
+      - "actions/release/**"
+      - "templates/cliff.toml"
+      - "tools/changelog.sh"
+      - "tools/git-cliff.requirements.txt"
+      - "tools/install-git-cliff.sh"
+      - "tools/release.sh"
+      - "tools/test-release.sh"
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Lint the scripts
+        run: shellcheck tools/*.sh
+      - name: Install the pinned git-cliff
+        run: echo "GIT_CLIFF=$(tools/install-git-cliff.sh "$RUNNER_TEMP/git-cliff")" >> "$GITHUB_ENV"
+      - name: Test the changelog and the release decisions
+        run: tools/test-release.sh
+
+  action:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          path: shared
+      - name: Build a repository whose version is new, and a pull request that raises it again
+        run: |
+          echo "GIT_CLIFF=$(shared/tools/install-git-cliff.sh "$RUNNER_TEMP/git-cliff")" >> "$GITHUB_ENV"
+          git init -q -b main .
+          git config user.name probe
+          git config user.email probe@example.invalid
+          mkdir include
+          printf '#define PROBE_NAME "Probe"\n#define PROBE_VERSION_MAJOR 0\n#define PROBE_VERSION_MINOR 1\n#define PROBE_VERSION_PATCH 0\n' > include/config.h
+          git add include
+          git commit -q -m "feat: a first capability"
+          echo "BASE=$(git rev-parse HEAD)" >> "$GITHUB_ENV"
+      - name: Write its changelog and its citation
+        run: |
+          shared/tools/changelog.sh --tag v0.1.0 --output CHANGELOG.md
+          printf 'cff-version: 1.2.0\nversion: "0.1.0"\ndate-released: "%s"\n' "$(date -u +%F)" > CITATION.cff
+      - name: Run the action as on a push, creating nothing
+        id: push
+        uses: ./shared/actions/release
+        with:
+          config-header: include/config.h
+          prefix: PROBE
+          history: ""
+          pending: ""
+          dry-run: "true"
+      - name: Raise the version as a pull request would
+        run: |
+          sed -i 's/MINOR 1/MINOR 2/' include/config.h
+          shared/tools/changelog.sh --tag v0.2.0 --pending "feat(probe): a second capability (#2)" --output CHANGELOG.md
+          printf 'cff-version: 1.2.0\nversion: "0.2.0"\ndate-released: "%s"\n' "$(date -u +%F)" > CITATION.cff
+      - name: Run the action as on that pull request
+        id: pull-request
+        uses: ./shared/actions/release
+        with:
+          config-header: include/config.h
+          prefix: PROBE
+          history: ${{ env.BASE }}
+          pending: "feat(probe): a second capability (#2)"
+      - name: The action read both versions and released nothing
+        env:
+          PUSH_VERSION: ${{ steps.push.outputs.version }}
+          PUSH_RELEASED: ${{ steps.push.outputs.released }}
+          PULL_REQUEST_VERSION: ${{ steps.pull-request.outputs.version }}
+          PULL_REQUEST_RELEASED: ${{ steps.pull-request.outputs.released }}
+        run: |
+          test "$PUSH_VERSION" = 0.1.0 && test "$PUSH_RELEASED" = false
+          test "$PULL_REQUEST_VERSION" = 0.2.0 && test "$PULL_REQUEST_RELEASED" = false

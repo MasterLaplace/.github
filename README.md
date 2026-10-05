@@ -23,4 +23,57 @@ tools/check-config-header.sh ../LplKernel/kernel/include/kernel/config.h KERNEL
 tools/test-config-header.sh                                   # the template and the check, tested
 ```
 
+A release is cut from that version. `tools/changelog.sh` writes a repository's `CHANGELOG.md` from
+its commit titles with the shared `templates/cliff.toml`, and `actions/release` runs
+`tools/release.sh`: when `config.h` gives a version later than the last `vX.Y.Z` tag, it checks that
+`CITATION.cff` and `CHANGELOG.md` agree with it, then tags the commit and publishes the GitHub
+release, whose notes are that version's section. On a pull request it runs the same check as the
+squash merge will land, and creates nothing. A repository calls it from
+`.github/workflows/release.yml`:
+
+```yaml
+name: Release
+on:
+  push:
+    branches: [main]
+  pull_request:
+    types: [opened, edited, reopened, synchronize]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  check:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      - uses: MasterLaplace/.github/actions/release@<commit> # main
+        with:
+          config-header: kernel/include/kernel/config.h
+          prefix: KERNEL
+  release:
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    concurrency: release
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      - uses: MasterLaplace/.github/actions/release@<commit> # main
+        with:
+          config-header: kernel/include/kernel/config.h
+          prefix: KERNEL
+```
+
+```bash
+tools/changelog.sh ../LplKernel                                     # what is not released yet
+tools/changelog.sh --tag v0.2.0 --pending "feat(boot): a title (#42)" --output ../LplKernel/CHANGELOG.md ../LplKernel
+tools/release.sh --dry-run kernel/include/kernel/config.h KERNEL    # from a repository's root
+tools/test-release.sh                                               # the changelog and the release, tested
+```
+
 A change to any of these goes through a pull request here, like code.

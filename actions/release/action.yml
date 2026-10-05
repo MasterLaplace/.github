@@ -1,0 +1,67 @@
+name: Release on a version change
+description: >-
+  Tag the commit vX.Y.Z and publish its GitHub release when the version in the repository's
+  config.h is later than its last tag, after checking CITATION.cff and CHANGELOG.md against it.
+  On a pull request it only checks, as the squash merge will land. Runs tools/release.sh;
+  the checkout must hold the full history and the tags.
+
+inputs:
+  config-header:
+    description: The repository's copy of templates/config.h, from its root.
+    required: true
+  prefix:
+    description: Its macro prefix, for example KERNEL or LPLPLUGIN.
+    required: true
+  token:
+    description: A token allowed to create a release in the repository.
+    default: ${{ github.token }}
+  history:
+    description: >-
+      The commit whose history the changelog is checked against; on a pull request, the tip of
+      its base branch. Empty means the commit checked out.
+    default: ${{ github.event.pull_request.base.sha }}
+  pending:
+    description: >-
+      The title of the commit about to land on that history; on a pull request, its title and
+      number, as its squash merge writes them. Empty means none.
+    default: >-
+      ${{ github.event.pull_request.number && format('{0} (#{1})', github.event.pull_request.title, github.event.pull_request.number) || '' }}
+  dry-run:
+    description: >-
+      true to print the decision and the notes and create nothing; always so with a history or a
+      pending title.
+    default: "false"
+
+outputs:
+  version:
+    description: The version config.h gives.
+    value: ${{ steps.release.outputs.version }}
+  released:
+    description: true when this run created the tag and the release.
+    value: ${{ steps.release.outputs.released }}
+
+runs:
+  using: composite
+  steps:
+    - name: Install the pinned git-cliff
+      shell: bash
+      run: |
+        program="$("$GITHUB_ACTION_PATH/../../tools/install-git-cliff.sh" "$RUNNER_TEMP/git-cliff")"
+        echo "GIT_CLIFF=$program" >> "$GITHUB_ENV"
+
+    - name: Release when the version is new
+      id: release
+      shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.token }}
+        CONFIG_HEADER: ${{ inputs.config-header }}
+        PREFIX: ${{ inputs.prefix }}
+        HISTORY: ${{ inputs.history }}
+        PENDING: ${{ inputs.pending }}
+        DRY_RUN: ${{ inputs.dry-run }}
+      run: |
+        options=()
+        if [ -n "$HISTORY" ]; then options+=(--history "$HISTORY"); fi
+        if [ -n "$PENDING" ]; then options+=(--pending "$PENDING"); fi
+        if [ "$DRY_RUN" = "true" ] || [ "${#options[@]}" -gt 0 ]; then options+=(--dry-run); fi
+        "$GITHUB_ACTION_PATH/../../tools/release.sh" "${options[@]}" "$CONFIG_HEADER" "$PREFIX"
