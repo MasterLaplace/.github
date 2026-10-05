@@ -1,0 +1,22 @@
+name: Check config.h against the template
+description: >-
+  Fail when the shared part of the repository's config.h has drifted from templates/config.h
+  at the commit this action is pinned to. Runs tools/check-config-header.sh.
+
+inputs:
+  config-header:
+    description: The repository's copy of templates/config.h, from its root.
+    required: true
+  prefix:
+    description: Its macro prefix, for example KERNEL or LPLPLUGIN.
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - name: Compare the shared part with the template
+      shell: bash
+      env:
+        CONFIG_HEADER: ${{ inputs.config-header }}
+        PREFIX: ${{ inputs.prefix }}
+      run: '"$GITHUB_ACTION_PATH/../../tools/check-config-header.sh" "$CONFIG_HEADER" "$PREFIX"'
