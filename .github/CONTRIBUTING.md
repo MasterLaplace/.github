@@ -27,8 +27,10 @@ excepted.
 5. **Each commit names the people who answer for it.** A co-author line names a person, never a
    tool, and no footer credits one; the formatting bot (`github-actions[bot]`) is the one exception,
    since it is a deterministic tool whose work is worth seeing.
-6. **The changelog** is generated from the commit titles, under `## [Unreleased]` until a release
-   names the section. A title is therefore written for whoever updates.
+6. **The changelog** is generated from the commit titles, and the pull request that raises the version
+   writes it, filing everything since the last release under the new version. A title is therefore
+   written for whoever updates; a `style`, `ci` or `test` commit changes nothing a user of the release
+   sees, and is left out.
 
 ## What the default branch requires
 
@@ -50,7 +52,10 @@ section.
 The version is written once, in the repository's `config.h`, a copy of
 [templates/config.h](https://github.com/MasterLaplace/.github/blob/main/templates/config.h): the build, the release and `CITATION.cff` read it
 there, and every binary carries it. The pull request that changes what another repository or a user
-can see raises it. A repository that needs another one says so in its own `config.h`, with
+can see raises it, sets `version` and `date-released` in `CITATION.cff`, and writes `CHANGELOG.md`
+with `tools/changelog.sh --tag vX.Y.Z --pending "<its title> (#<its number>)"`. Its release check
+refuses a citation or a changelog that disagrees; once it is merged, the same check tags the commit
+and publishes the release, whose notes are that version's section. A repository that needs another one says so in its own `config.h`, with
 `<PREFIX>_COMPATIBLE_WITH(major, minor, patch)`: at least that version, in the same major, checked by
 the compiler whatever the build system. Only the shared part of a `config.h` comes from the template,
 and `tools/check-config-header.sh` refuses a copy where it has drifted.
