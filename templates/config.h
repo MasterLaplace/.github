@@ -14,7 +14,7 @@
  * that is too old or of another major:
  *
  *     #if defined(LPL_HAS_FOUNDATION)
- *         #include <lpl/config.h>
+ *         #include <lplplugin/config.h>
  *         #if !LPLPLUGIN_COMPATIBLE_WITH(0, 2, 0)
  *             #pragma message("found LplPlugin " LPLPLUGIN_VERSION_STRING)
  *             #if LPLPLUGIN_VERSION_MAJOR != 0
