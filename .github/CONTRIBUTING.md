@@ -29,7 +29,8 @@ excepted.
    since it is a deterministic tool whose work is worth seeing.
 6. **The changelog** is generated from the commit titles, and the pull request that raises the version
    writes it, filing everything since the last release under the new version. A title is therefore
-   written for whoever updates; a `style` commit changes nothing anyone sees and is left out.
+   written for whoever updates; a `style`, `ci` or `test` commit changes nothing a user of the release
+   sees, and is left out.
 
 ## What the default branch requires
 
