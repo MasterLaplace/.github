@@ -5,9 +5,6 @@ in its own README, and what only holds in one repository is in its own CONTRIBUT
 here. Everything in a repository is written in English, the LplKernel book and LplCraftSkills
 excepted.
 
-Three of these rules are being put in place, and do not hold yet everywhere: the branch rules (#45),
-the generated changelog (#41) and SemVer for the kernel's version (LplKernel#425).
-
 ## How a change flows
 
 1. **An issue** says what is asked, what is true today, what is missing, and how we will know it is
