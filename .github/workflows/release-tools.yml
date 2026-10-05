@@ -31,7 +31,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Lint the scripts
-        run: shellcheck tools/*.sh
+        run: shellcheck tools/changelog.sh tools/install-git-cliff.sh tools/release.sh tools/test-release.sh
       - name: Install the pinned git-cliff
         run: echo "GIT_CLIFF=$(tools/install-git-cliff.sh "$RUNNER_TEMP/git-cliff")" >> "$GITHUB_ENV"
       - name: Test the changelog and the release decisions
