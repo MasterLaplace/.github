@@ -6,6 +6,7 @@ on:
       - "templates/config.h"
       - "tools/check-config-header.sh"
       - "tools/test-config-header.sh"
+      - "actions/check-config-header/**"
       - ".github/workflows/config-template.yml"
   push:
     branches: [main]
@@ -13,6 +14,7 @@ on:
       - "templates/config.h"
       - "tools/check-config-header.sh"
       - "tools/test-config-header.sh"
+      - "actions/check-config-header/**"
 
 permissions:
   contents: read
@@ -26,3 +28,31 @@ jobs:
         run: sudo apt-get update -q && sudo apt-get install -y -q clang
       - name: Test the template and the check
         run: tools/test-config-header.sh
+
+  action:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          path: shared
+      - name: Copy the template as a repository would, and drift a second copy
+        run: |
+          mkdir -p faithful drifted
+          sed -E 's/\bLAPLACE_TEMPLATE_/PROBE_/g; s/LaplaceTemplate/Probe/g' shared/templates/config.h > faithful/config.h
+          sed -E 's/define PROBE_CONFIG_TEMPLATE 1/define PROBE_CONFIG_TEMPLATE 1\n#define PROBE_DRIFT 1/' faithful/config.h > drifted/config.h
+      - name: A faithful copy passes
+        uses: ./shared/actions/check-config-header
+        with:
+          config-header: faithful/config.h
+          prefix: PROBE
+      - name: A drifted copy fails
+        id: drifted
+        continue-on-error: true
+        uses: ./shared/actions/check-config-header
+        with:
+          config-header: drifted/config.h
+          prefix: PROBE
+      - name: The drifted copy was refused
+        env:
+          OUTCOME: ${{ steps.drifted.outcome }}
+        run: test "$OUTCOME" = failure

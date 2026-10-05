@@ -23,6 +23,33 @@ tools/check-config-header.sh ../LplKernel/kernel/include/kernel/config.h KERNEL
 tools/test-config-header.sh                                   # the template and the check, tested
 ```
 
+`actions/check-config-header` runs that check in a repository's own CI, against the template at the
+commit it is pinned to, from `.github/workflows/config-header.yml`:
+
+```yaml
+name: config.h
+on:
+  pull_request:
+    paths: [kernel/include/kernel/config.h, .github/workflows/config-header.yml]
+  push:
+    branches: [main]
+    paths: [kernel/include/kernel/config.h, .github/workflows/config-header.yml]
+permissions:
+  contents: read
+jobs:
+  template:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: MasterLaplace/.github/actions/check-config-header@<commit> # main
+        with:
+          config-header: kernel/include/kernel/config.h
+          prefix: KERNEL
+```
+
+Moving the pin to a newer commit is how a repository takes a change of the template: the pull
+request that moves it is where its copy is brought back with `--write`.
+
 A release is cut from that version. `tools/changelog.sh` writes a repository's `CHANGELOG.md` from
 its commit titles with the shared `templates/cliff.toml`, and `actions/release` runs
 `tools/release.sh`: when `config.h` gives a version later than the last `vX.Y.Z` tag, it checks that
