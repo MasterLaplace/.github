@@ -459,8 +459,8 @@
  * also works inside #if, which is where a repository checks the version of another.
  *
  * @code
- * #if !LPLPLUGIN_COMPATIBLE_WITH(0, 3, 0)
- *     #error "This needs LplPlugin 0.3.0 or a later 0.x"
+ * #if !OTHER_COMPATIBLE_WITH(0, 3, 0)
+ *     #error "This needs the other repository at 0.3.0 or a later 0.x"
  * #endif
  * @endcode
  * @{

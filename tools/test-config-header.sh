@@ -69,6 +69,11 @@ done
 gcc -std=c11 -DLPL_TARGET_KERNEL=1 -E -dM "$work/probe.c" > "$work/macros"
 grep -q 'LAPLACE_TEMPLATE_SYSTEM_STRING "Laplace Kernel"' "$work/macros"; record $? "LPL_TARGET_KERNEL=1 selects the Laplace Kernel, whatever the compiler"
 
+for real in KERNEL:LplKernel LPLPLUGIN:LplPlugin LPLKNOWLEDGE:LplKnowledge LPLASSISTANT:LplAssistant; do
+    make_copy "${real#*:}" "${real#*:}" "${real%%:*}"
+    expect_success "a copy under the real prefix ${real%%:*}_ passes the check" "$check" "$work/${real#*:}/include/${real#*:}/config.h" "${real%%:*}"
+done
+
 make_copy Alpha alpha ALPHA
 make_copy Beta beta BETA
 python3 - "$work/Beta/include/beta/config.h" <<'EOF'
