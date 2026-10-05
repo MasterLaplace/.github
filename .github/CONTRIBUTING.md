@@ -47,6 +47,14 @@ What identifies a build (a profile, debug or release) travels as build metadata,
 `0.1.0+server.debug`, never as a fourth number. A release is a tag `vX.Y.Z` with its changelog
 section.
 
+The version is written once, in the repository's `config.h`, a copy of
+[templates/config.h](https://github.com/MasterLaplace/.github/blob/main/templates/config.h): the build, the release and `CITATION.cff` read it
+there, and every binary carries it. The pull request that changes what another repository or a user
+can see raises it. A repository that needs another one says so in its own `config.h`, with
+`<PREFIX>_COMPATIBLE_WITH(major, minor, patch)`: at least that version, in the same major, checked by
+the compiler whatever the build system. Only the shared part of a `config.h` comes from the template,
+and `tools/check-config-header.sh` refuses a copy where it has drifted.
+
 ## Evidence
 
 - **A claim about behaviour comes from a run, not from reading the code.** Reading gives a

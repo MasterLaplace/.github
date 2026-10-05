@@ -13,4 +13,14 @@ python3 -m forgeron etabli --file etabli.json            # the plan, nothing is 
 python3 -m forgeron etabli --file etabli.json --write    # apply, then read again
 ```
 
-A change to either goes through a pull request here, like code.
+`templates/config.h` is the header every Laplace repository copies under its own prefix: its name,
+its version, the build it went into, what it needs from the other repositories, and where it runs.
+`tools/check-config-header.sh` compares a copy with the template, and `--write` brings a copy back to
+it:
+
+```bash
+tools/check-config-header.sh ../LplKernel/kernel/include/kernel/config.h KERNEL
+tools/test-config-header.sh                                   # the template and the check, tested
+```
+
+A change to any of these goes through a pull request here, like code.
