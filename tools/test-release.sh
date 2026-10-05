@@ -159,7 +159,12 @@ expect_output "a pull request that raises the version passes before it lands" "w
     "$release" --dry-run --history main --pending "$title" include/config.h PROBE
 expect_failure "a pull request whose title changed since: refused" "not what the history gives" \
     "$release" --dry-run --history main --pending "feat(pack)!: another title (#9)" include/config.h PROBE
-expect_failure "without --history, the branch's commits are counted: refused" "not what the history gives" \
+expect_failure "with --history HEAD, the branch's commits are counted: refused" "not what the history gives" \
+    "$release" --dry-run --history HEAD --pending "$title" include/config.h PROBE
+git update-ref refs/remotes/origin/main main
+"$changelog" --tag v0.11.0 --pending "$title" --output "$work/defaulted.md"
+cmp -s CHANGELOG.md "$work/defaulted.md"; record $? "with --pending, changelog.sh reads origin/main by default"
+expect_output "with --pending, release.sh reads origin/main by default" "would tag v0.11.0" \
     "$release" --dry-run --pending "$title" include/config.h PROBE
 git switch -q main && git add -A && commit 2026-02-05 "$title"
 expect_output "its squash merge then releases" "would tag v0.11.0" "$release" --dry-run include/config.h PROBE
