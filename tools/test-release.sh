@@ -8,7 +8,8 @@ Usage: test-release.sh
 Tests tools/changelog.sh and tools/release.sh on throwaway repositories: the changelog
 regenerates identically, leaves release and style commits out and puts a breaking change
 first; a release happens on a later version only, and is refused on an earlier one, on a
-CITATION.cff or a CHANGELOG.md that disagrees, or on a changelog that misses a commit.
+CITATION.cff or a CHANGELOG.md that disagrees, or on a changelog that misses a commit; a
+repository without C code releases the version and the title of its CITATION.cff.
 gh is replaced by a stub that records its arguments, so nothing leaves the machine.
 Prints one PASS or FAIL line per check, then ALL PASS or the number of failures.
 EOF
@@ -175,6 +176,32 @@ expect_failure "changelog.sh refuses an unknown --history" "no such commit" "$ch
 sed -i '/define PROBE_VERSION_PATCH/d' include/config.h
 expect_failure "a config.h without a patch number: refused" "no numeric PROBE_VERSION_PATCH" "$release" --dry-run include/config.h PROBE
 expect_failure "a missing config.h: usage error" "no such file" "$release" --dry-run include/absent.h PROBE
+
+cited="$work/cited"
+git init -q -b main "$cited"
+cd "$cited" || exit 2
+git config user.name probe
+git config user.email probe@example.invalid
+git config commit.gpgsign false
+git config tag.gpgsign false
+cite_pack() { printf 'cff-version: 1.2.0\ntitle: "Pack"\nversion: "%s"\ndate-released: "%s"\n' "$1" "$2" > CITATION.cff; }
+commit 2026-03-01 "feat(skills): a first skill (#1)"
+cite_pack 0.1 "$today"
+expect_failure "without C code, a version that is not X.Y.Z: refused" "no version: X.Y.Z" "$release" --dry-run CITATION.cff
+printf 'cff-version: 1.2.0\nversion: "0.1.0"\ndate-released: "%s"\n' "$today" > CITATION.cff
+expect_failure "without C code, a citation without a title: refused" "no title" "$release" --dry-run CITATION.cff
+cite_pack 0.1.0 "$today"
+"$changelog" --tag v0.1.0 --output CHANGELOG.md
+git add -A && commit 2026-03-02 "chore(release): 0.1.0 (#2)"
+expect_output "without C code, the citation's version is released" "would tag v0.1.0" "$release" --dry-run CITATION.cff
+grep -q 'A first skill (#1)' "$work/out"; record $? "its notes are the version's section too"
+rm -f "$work/gh-arguments"
+expect_output "the release is named after the citation's title" "Pack 0.1.0 released as v0.1.0" "$release" CITATION.cff
+grep -qx "Pack 0.1.0" "$work/gh-arguments" 2> /dev/null; record $? "gh titles it with the citation's title and version"
+git tag v0.1.0
+expect_output "without C code, the same version: nothing to release" "nothing to release" "$release" CITATION.cff
+"$release" --dry-run README.md > "$work/out" 2>&1
+expect_true "one argument other than CITATION.cff: usage error" test $? -eq 2
 
 if [ "$failures" -eq 0 ]; then
     echo "ALL PASS ($checks checks)"

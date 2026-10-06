@@ -4,12 +4,15 @@ set -euo pipefail
 usage() {
     cat <<'EOF'
 Usage: release.sh [--dry-run] [--history <rev>] [--pending <title>] <config.h> <PREFIX>
+       release.sh [--dry-run] [--history <rev>] [--pending <title>] CITATION.cff
 
-Releases a Laplace repository when the version in its config.h is later than its last
-vX.Y.Z tag. Run it from the root of a clone that has its tags, on the commit to release.
+Releases a Laplace repository when its version is later than its last vX.Y.Z tag. Run it
+from the root of a clone that has its tags, on the commit to release.
 
-  <config.h>         the repository's copy of templates/config.h
+  <config.h>         the repository's copy of templates/config.h, where the version is
   <PREFIX>           its macro prefix, for example KERNEL or LPLPLUGIN
+  CITATION.cff       for a repository without C code: the version is the one its
+                     citation gives, and the release is named after its title
   --dry-run          print the decision and the release notes, create nothing
   --history <rev>    the commit whose history the changelog is checked against: HEAD by
                      default, origin/main with --pending; for a pull request, the tip of
@@ -18,7 +21,7 @@ vX.Y.Z tag. Run it from the root of a clone that has its tags, on the commit to 
                      on top of that history: for a pull request, its title followed by
                      " (#<number>)", which is what a squash merge writes
 
-The version in <config.h>, compared with the last tag:
+The version, compared with the last tag:
   the same          nothing to release
   earlier           refused: a version never goes back
   later, or no tag  CITATION.cff must give that version and a date-released, and
@@ -52,9 +55,12 @@ while [ $# -gt 0 ]; do
         *) arguments+=("$1"); shift ;;
     esac
 done
-[ "${#arguments[@]}" -eq 2 ] || { usage >&2; exit 2; }
-config="${arguments[0]}"
-prefix="${arguments[1]}"
+case "${#arguments[@]}" in
+    2) config="${arguments[0]}"; prefix="${arguments[1]}" ;;
+    1) [ "${arguments[0]}" = CITATION.cff ] || { usage >&2; exit 2; }
+       config=CITATION.cff; prefix="" ;;
+    *) usage >&2; exit 2 ;;
+esac
 if [ -z "$history" ]; then
     if [ -n "$pending" ]; then history=origin/main; else history=HEAD; fi
 fi
@@ -78,14 +84,21 @@ read_field() {
     sed -nE "s/^$1:[[:space:]]*\"?([^\"]*[^\"[:space:]])\"?[[:space:]]*$/\\1/p" CITATION.cff | head -n 1
 }
 
-version=""
-for part in MAJOR MINOR PATCH; do
-    number="$(read_define "VERSION_$part")"
-    [[ $number =~ ^[0-9]+$ ]] || refuse "$config has no numeric ${prefix}_VERSION_$part"
-    version="${version:+$version.}$number"
-done
-name="$(read_define NAME | sed -E 's/^"(.*)"$/\1/')"
-[ -n "$name" ] || refuse "$config has no ${prefix}_NAME"
+if [ -z "$prefix" ]; then
+    version="$(read_field version)"
+    [[ $version =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || refuse "CITATION.cff has no version: X.Y.Z"
+    name="$(read_field title)"
+    [ -n "$name" ] || refuse "CITATION.cff has no title"
+else
+    version=""
+    for part in MAJOR MINOR PATCH; do
+        number="$(read_define "VERSION_$part")"
+        [[ $number =~ ^[0-9]+$ ]] || refuse "$config has no numeric ${prefix}_VERSION_$part"
+        version="${version:+$version.}$number"
+    done
+    name="$(read_define NAME | sed -E 's/^"(.*)"$/\1/')"
+    [ -n "$name" ] || refuse "$config has no ${prefix}_NAME"
+fi
 
 last_tag="$(git tag --list 'v*' | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | sort -V | tail -n 1 || true)"
 if [ -n "$last_tag" ]; then

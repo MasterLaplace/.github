@@ -96,6 +96,9 @@ jobs:
           prefix: KERNEL
 ```
 
+A repository without C code has no `config.h`: it passes `config-header: CITATION.cff` and no
+`prefix`, and the release takes its version and its name from the citation's `version` and `title`.
+
 ```bash
 tools/changelog.sh ../LplKernel                                     # what is not released yet
 tools/changelog.sh --tag v0.2.0 --pending "feat(boot): a title (#42)" --output ../LplKernel/CHANGELOG.md ../LplKernel
