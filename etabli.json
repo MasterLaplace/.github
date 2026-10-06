@@ -182,8 +182,15 @@
         {
           "context": "check",
           "integration_id": 15368
+        },
+        {
+          "context": "build_site",
+          "integration_id": 15368
         }
-      ]
+      ],
+      "settings": {
+        "allow_auto_merge": true
+      }
     },
     "MasterLaplace/LplPlugin": {
       "required_checks": [
