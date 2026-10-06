@@ -13,7 +13,9 @@ history by git-cliff with the shared templates/cliff.toml.
   --pending <title>  as if a commit titled <title> had landed on top of the history: the
                      pull request that raises the version passes its own title followed by
                      " (#<number>)", which is what its squash merge will write
-  --history <rev>    the commit whose history is read, HEAD by default
+  --history <rev>    the commit whose history is read: HEAD by default, origin/main with
+                     --pending, since the squash lands on main and not on the branch, whose
+                     own commits would otherwise be counted
   --output FILE      write FILE instead of printing
 
 So the pull request #42 titled "feat(pack)!: a new section" that raises the version to
@@ -34,7 +36,7 @@ pinned="$(sed -nE 's/^git-cliff==([0-9.]+).*/\1/p' "$here/tools/git-cliff.requir
 
 tag=""
 pending=""
-history=HEAD
+history=""
 output=""
 repository="."
 while [ $# -gt 0 ]; do
@@ -59,6 +61,9 @@ if [ -n "$tag" ] && [[ ! $tag =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
     exit 2
 fi
 [ -d "$repository" ] || { echo "$repository: no such directory" >&2; exit 2; }
+if [ -z "$history" ]; then
+    if [ -n "$pending" ]; then history=origin/main; else history=HEAD; fi
+fi
 git -C "$repository" rev-parse -q --verify "$history^{commit}" > /dev/null \
     || { echo "--history $history: no such commit in $repository" >&2; exit 2; }
 

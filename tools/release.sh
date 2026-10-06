@@ -11,8 +11,9 @@ vX.Y.Z tag. Run it from the root of a clone that has its tags, on the commit to 
   <config.h>         the repository's copy of templates/config.h
   <PREFIX>           its macro prefix, for example KERNEL or LPLPLUGIN
   --dry-run          print the decision and the release notes, create nothing
-  --history <rev>    the commit whose history the changelog is checked against, HEAD by
-                     default; for a pull request, the tip of the branch it merges into
+  --history <rev>    the commit whose history the changelog is checked against: HEAD by
+                     default, origin/main with --pending; for a pull request, the tip of
+                     the branch it merges into
   --pending <title>  check the changelog as it will be once a commit titled <title> lands
                      on top of that history: for a pull request, its title followed by
                      " (#<number>)", which is what a squash merge writes
@@ -35,7 +36,7 @@ EOF
 here="$(cd "$(dirname "$0")/.." && pwd)"
 
 dry_run=0
-history=HEAD
+history=""
 pending=""
 arguments=()
 while [ $# -gt 0 ]; do
@@ -54,6 +55,9 @@ done
 [ "${#arguments[@]}" -eq 2 ] || { usage >&2; exit 2; }
 config="${arguments[0]}"
 prefix="${arguments[1]}"
+if [ -z "$history" ]; then
+    if [ -n "$pending" ]; then history=origin/main; else history=HEAD; fi
+fi
 [ -f "$config" ] || { echo "$config: no such file" >&2; exit 2; }
 
 refuse() {

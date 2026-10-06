@@ -70,7 +70,7 @@ jobs:
       - name: Raise the version as a pull request would
         run: |
           sed -i 's/MINOR 1/MINOR 2/' include/config.h
-          shared/tools/changelog.sh --tag v0.2.0 --pending "feat(probe): a second capability (#2)" --output CHANGELOG.md
+          shared/tools/changelog.sh --tag v0.2.0 --history "$BASE" --pending "feat(probe): a second capability (#2)" --output CHANGELOG.md
           printf 'cff-version: 1.2.0\nversion: "0.2.0"\ndate-released: "%s"\n' "$(date -u +%F)" > CITATION.cff
       - name: Run the action as on that pull request
         id: pull-request
