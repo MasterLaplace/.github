@@ -1,17 +1,20 @@
 name: Release on a version change
 description: >-
-  Tag the commit vX.Y.Z and publish its GitHub release when the version in the repository's
-  config.h is later than its last tag, after checking CITATION.cff and CHANGELOG.md against it.
+  Tag the commit vX.Y.Z and publish its GitHub release when the repository's version, from its
+  config.h or, without C code, from its CITATION.cff, is later than its last tag, after checking
+  CITATION.cff and CHANGELOG.md against it.
   On a pull request it only checks, as the squash merge will land. Runs tools/release.sh;
   the checkout must hold the full history and the tags.
 
 inputs:
   config-header:
-    description: The repository's copy of templates/config.h, from its root.
+    description: >-
+      The repository's copy of templates/config.h, from its root; or CITATION.cff for a repository
+      without C code, whose version and name are then its citation's version and title.
     required: true
   prefix:
-    description: Its macro prefix, for example KERNEL or LPLPLUGIN.
-    required: true
+    description: The config.h macro prefix, for example KERNEL or LPLPLUGIN; empty with CITATION.cff.
+    default: ""
   token:
     description: A token allowed to create a release in the repository.
     default: ${{ github.token }}
@@ -34,7 +37,7 @@ inputs:
 
 outputs:
   version:
-    description: The version config.h gives.
+    description: The version the repository declares.
     value: ${{ steps.release.outputs.version }}
   released:
     description: true when this run created the tag and the release.
@@ -64,4 +67,6 @@ runs:
         if [ -n "$HISTORY" ]; then options+=(--history "$HISTORY"); fi
         if [ -n "$PENDING" ]; then options+=(--pending "$PENDING"); fi
         if [ "$DRY_RUN" = "true" ] || [ "${#options[@]}" -gt 0 ]; then options+=(--dry-run); fi
-        "$GITHUB_ACTION_PATH/../../tools/release.sh" "${options[@]}" "$CONFIG_HEADER" "$PREFIX"
+        version_file=("$CONFIG_HEADER")
+        if [ -n "$PREFIX" ]; then version_file+=("$PREFIX"); fi
+        "$GITHUB_ACTION_PATH/../../tools/release.sh" "${options[@]}" "${version_file[@]}"

@@ -53,7 +53,8 @@ section.
 
 The version is written once, in the repository's `config.h`, a copy of
 [templates/config.h](https://github.com/MasterLaplace/.github/blob/main/templates/config.h): the build, the release and `CITATION.cff` read it
-there, and every binary carries it. The pull request that changes what another repository or a user
+there, and every binary carries it. A repository without C code has no `config.h`: its version is the
+one its `CITATION.cff` gives, and the release reads it there. The pull request that changes what another repository or a user
 can see raises it, sets `version` and `date-released` in `CITATION.cff`, and writes `CHANGELOG.md`
 with `tools/changelog.sh --tag vX.Y.Z --pending "<its title> (#<its number>)"`. Its release check
 refuses a citation or a changelog that disagrees; once it is merged, the same check tags the commit
