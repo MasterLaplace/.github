@@ -97,13 +97,16 @@
                 "squash"
               ]
             }
+          },
+          {
+            "type": "required_signatures"
           }
         ],
         "bypass_actors": [
           {
             "actor_id": 5,
             "actor_type": "RepositoryRole",
-            "bypass_mode": "always"
+            "bypass_mode": "pull_request"
           }
         ]
       }
@@ -127,19 +130,48 @@
       }
     },
     "MasterLaplace/LplKernel": {
-      "only": [
-        "labels",
-        "settings",
-        "security"
+      "required_checks": [
+        {
+          "context": "Verify Commit Name",
+          "integration_id": 15368
+        },
+        {
+          "context": "check",
+          "integration_id": 15368
+        }
       ]
     },
-    "MasterLaplace/LplPlugin": {},
-    "MasterLaplace/LplKnowledge": {},
+    "MasterLaplace/LplPlugin": {
+      "required_checks": [
+        {
+          "context": "Verify Commit Name",
+          "integration_id": 15368
+        },
+        {
+          "context": "check",
+          "integration_id": 15368
+        }
+      ]
+    },
+    "MasterLaplace/LplKnowledge": {
+      "required_checks": [
+        {
+          "context": "check",
+          "integration_id": 15368
+        }
+      ]
+    },
     "MasterLaplace/LplVesuvius": {
       "only": [
         "settings",
         "security",
         "rulesets"
+      ],
+      "required_checks": [
+        {
+          "context": "tests",
+          "integration_id": 15368
+        }
       ]
     },
     "MasterLaplace/.github": {}

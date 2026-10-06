@@ -38,6 +38,8 @@ excepted.
   request;
 - signed commits;
 - the required checks green, and no new warning: a warning that crosses a merge becomes a thousand.
+  A commit pushed by the formatting bot starts no check, since GitHub runs no workflow on what its
+  own token pushes: when it is the last commit, edit the pull request or push again.
 
 ## Versions
 
