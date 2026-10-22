@@ -193,6 +193,12 @@
       }
     },
     "MasterLaplace/LplPlugin": {
+      "labels": {
+        "frames": {
+          "color": "bfd4f2",
+          "description": "CI draws the reference frames on the base and the head, and posts where the pixels changed"
+        }
+      },
       "required_checks": [
         {
           "context": "Verify Commit Name",
