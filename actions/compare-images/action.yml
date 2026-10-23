@@ -1,0 +1,418 @@
+name: Compare the images two commits draw
+description: >-
+  Shows what a change does to the images the repository draws with the draw command. Each side is
+  a commit's images: the reference kept for that commit when there is one, or drawn on this runner
+  and kept for the next runs, so a commit is never drawn twice. On a pull request the comparison
+  goes to a comment with the images inline, replaced on every run and cleaned up when the pull
+  request closes; after a release, to the release notes; on a manual run, to the run's summary;
+  on a push, the commit's images are only kept. Every comparison also leaves the table in the
+  run's summary and a page with each changed image under a curtain as an artifact. Use it after
+  compare-images/scope, which decides the run and its before. Runs tools/compare-images.py and
+  tools/publish-images.sh. The checkout must hold the history and the tags (fetch-depth: 0), and
+  be the pull request merged into its target on a pull request. Needs contents, pull-requests and
+  actions write permissions.
+
+inputs:
+  draw:
+    description: >-
+      The shell command that draws the images, run at the root of a tree with IMAGES_DIR, the
+      directory to write them into (PNG or binary PPM, one file per image), and IMAGES_SIDE,
+      before or after.
+    required: true
+  before:
+    description: >-
+      What to compare with: target (the tip of the branch the pull request goes into), start
+      (where the pull request branched), previous-release (the vX.Y.Z tag before the one on this
+      commit), keep (only keep this commit's images), or a commit, branch or tag.
+    default: target
+  title:
+    description: The heading of the comment, of the page and of the release section; one set of comments and references per title.
+    default: Images compared
+  threshold:
+    description: The colour distance, from 0 to 1, over which a changed pixel counts as visible.
+    default: "0.1"
+  comment:
+    description: >-
+      replace to delete a pull request's previous comment for the same comparison and post a new
+      one after the latest push; update to edit it in place; off for no comment.
+    default: replace
+  comment-when:
+    description: changed to comment only when an image differs, always to comment every time.
+    default: changed
+  release-notes:
+    description: true to add the comparison with the previous release to the release's notes.
+    default: "true"
+  images-branch:
+    description: The branch the images live on, the comments' and the releases' images and the kept references.
+    default: compare-images
+  keep-references:
+    description: How many commits keep their images as references, the newest.
+    default: "20"
+  keep-releases:
+    description: How many releases keep the images of their notes, the newest.
+    default: "10"
+  retention-days:
+    description: How long the run keeps the page.
+    default: "14"
+  fail-on-change:
+    description: true to fail the job when an image differs.
+    default: "false"
+  closed:
+    description: true when the pull request was closed, to delete its artifacts and its images.
+    default: ${{ github.event.action == 'closed' }}
+  pull-request:
+    description: The pull request the comparison is about; empty for none.
+    default: ${{ github.event.pull_request.number || github.event.issue.number }}
+  token:
+    description: A token that may push the images branch, comment, edit a release and delete artifacts.
+    default: ${{ github.token }}
+
+outputs:
+  changed:
+    description: true when an image differs, or only one side has it.
+    value: ${{ steps.compare.outputs.changed }}
+
+runs:
+  using: composite
+  steps:
+    - name: Plan the comparison
+      id: plan
+      shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.token }}
+        TITLE: ${{ inputs.title }}
+        BEFORE: ${{ inputs.before }}
+        PULL_REQUEST: ${{ inputs.pull-request }}
+        CLOSED: ${{ inputs.closed }}
+        TOKEN: ${{ inputs.token }}
+        BRANCH: ${{ inputs.images-branch }}
+      run: |
+        set -euo pipefail
+        out() { echo "$1=$2" >>"$GITHUB_OUTPUT"; }
+        commit_of() {
+          case "$1" in -* | *..* | *[!A-Za-z0-9._/-]*) echo "compare-images: refusing the reference '$1'" >&2; return 1 ;; esac
+          git rev-parse --verify --quiet "origin/$1^{commit}" || git rev-parse --verify --quiet "$1^{commit}" ||
+            { echo "compare-images: no commit, branch or tag named '$1'" >&2; return 1; }
+        }
+        slug="$(printf '%s' "$TITLE" | tr '[:upper:]' '[:lower:]' | tr -cs 'a-z0-9' '-' | sed 's/^-//; s/-$//')"
+        remote="$RUNNER_TEMP/compare-images-remote"
+        git init --quiet "$remote"
+        url="https://x-access-token:$TOKEN@${GITHUB_SERVER_URL#https://}/$GITHUB_REPOSITORY.git"
+        git -C "$remote" remote add origin "$url"
+        if git -C "$remote" fetch --quiet --depth 1 origin "refs/heads/$BRANCH" 2>/dev/null; then out kept-branch true; else out kept-branch false; fi
+        out slug "$slug"
+        out remote "$remote"
+        out references "$slug/references"
+        out stamp "$(date -u +%Y%m%d%H%M%S)"
+        if [ "$CLOSED" = true ]; then
+          out mode closed
+          out folder "$slug/pr-$PULL_REQUEST"
+          out artifact-prefix "compare-images-$slug-pr-$PULL_REQUEST-"
+          out marker "<!-- compare-images: $slug pr-$PULL_REQUEST"
+          exit 0
+        fi
+        head_commit="$(git rev-parse HEAD)"
+        case "$BEFORE" in
+        keep)
+          out mode keep
+          out after-commit "$head_commit"
+          exit 0 ;;
+        previous-release)
+          tag="$(git describe --exact-match --tags --match 'v[0-9]*' HEAD)"
+          previous="$(git describe --tags --abbrev=0 --match 'v[0-9]*' "$tag^" 2>/dev/null || true)"
+          [ -n "$previous" ] || { echo "compare-images: $tag is the first release, nothing to compare with" >>"$GITHUB_STEP_SUMMARY"; out mode none; exit 0; }
+          out mode release
+          out tag "$tag"
+          out before-commit "$(git rev-parse "$previous^{commit}")"
+          out before-name "release $previous"
+          out after-commit "$head_commit"
+          out after-name "release $tag"
+          out key "release"
+          out folder "$slug/releases/$(date -u +%Y%m%d%H%M%S)-$tag"
+          out artifact "compare-images-$slug-release-$tag"
+          exit 0 ;;
+        esac
+        if [ -z "$PULL_REQUEST" ]; then
+          before_commit="$(commit_of "$BEFORE")"
+          out mode manual
+          out before-commit "$before_commit"
+          out before-name "$BEFORE at ${before_commit:0:7}"
+          out after-name "$GITHUB_REF_NAME at ${head_commit:0:7}"
+          out key "manual"
+          out folder "$slug/manual/$(date -u +%Y%m%d%H%M%S)-$GITHUB_RUN_ID"
+          out artifact "compare-images-$slug-manual-$GITHUB_RUN_ID"
+          exit 0
+        fi
+        pull="$(gh api "repos/$GITHUB_REPOSITORY/pulls/$PULL_REQUEST" --jq '.base.ref + " " + .base.sha + " " + .head.sha')"
+        read -r base_ref base_commit pull_head <<<"$pull"
+        git fetch --quiet "$url" "refs/pull/$PULL_REQUEST/head" "+refs/heads/$base_ref:refs/remotes/origin/$base_ref"
+        base_commit="$(git rev-parse "origin/$base_ref^{commit}" 2>/dev/null || echo "$base_commit")"
+        if git rev-parse --verify --quiet "HEAD^2" >/dev/null && [ "$(git rev-parse HEAD^2)" = "$pull_head" ]; then
+          base_commit="$(git rev-parse HEAD^1)"
+        fi
+        out mode pull-request
+        case "$BEFORE" in
+        target)
+          out before-commit "$base_commit"
+          out before-name "$base_ref at ${base_commit:0:7}, the target"
+          out after-name "this pull request merged into it"
+          key=target ;;
+        start)
+          start="$(git merge-base "$base_commit" "$pull_head")"
+          out before-commit "$start"
+          out before-name "${start:0:7}, where this pull request branched"
+          out after-commit "$pull_head"
+          out after-name "this pull request at ${pull_head:0:7}"
+          key=start ;;
+        *)
+          before_commit="$(commit_of "$BEFORE")"
+          out before-commit "$before_commit"
+          out before-name "$BEFORE at ${before_commit:0:7}"
+          out after-name "this pull request merged into $base_ref"
+          key="$(printf '%s' "$BEFORE" | tr -cs 'A-Za-z0-9.' '-' | sed 's/^-//; s/-$//')" ;;
+        esac
+        out key "$key"
+        out folder "$slug/pr-$PULL_REQUEST/$key"
+        out artifact "compare-images-$slug-pr-$PULL_REQUEST-$key"
+        out marker "<!-- compare-images: $slug pr-$PULL_REQUEST $key -->"
+
+    - name: Find the kept references
+      id: kept
+      if: steps.plan.outputs.kept-branch == 'true' && steps.plan.outputs.mode != 'closed' && steps.plan.outputs.mode != 'none'
+      shell: bash
+      env:
+        REMOTE: ${{ steps.plan.outputs.remote }}
+        REFERENCES: ${{ steps.plan.outputs.references }}
+        BEFORE_COMMIT: ${{ steps.plan.outputs.before-commit }}
+        AFTER_COMMIT: ${{ steps.plan.outputs.after-commit }}
+      run: |
+        cd "$REMOTE"
+        mkdir -p "$RUNNER_TEMP/compare-images-kept"
+        for side in before after; do
+          commit="$([ "$side" = before ] && echo "$BEFORE_COMMIT" || echo "$AFTER_COMMIT")"
+          [ -n "$commit" ] || continue
+          folder="$(git ls-tree --name-only FETCH_HEAD "$REFERENCES/" | grep -E -- "-$commit\$" | tail -1 || true)"
+          if [ -n "$folder" ]; then
+            git archive FETCH_HEAD "$folder" | tar -x -C "$RUNNER_TEMP/compare-images-kept"
+            echo "$side=$RUNNER_TEMP/compare-images-kept/$folder" >>"$GITHUB_OUTPUT"
+          fi
+        done
+
+    - name: Keep this commit's images
+      if: steps.plan.outputs.mode == 'keep' && steps.kept.outputs.after == ''
+      shell: bash
+      env:
+        DRAW: ${{ inputs.draw }}
+        BRANCH: ${{ inputs.images-branch }}
+        REMOTE: ${{ steps.plan.outputs.remote }}
+        REFERENCES: ${{ steps.plan.outputs.references }}
+        STAMP: ${{ steps.plan.outputs.stamp }}
+        COMMIT: ${{ steps.plan.outputs.after-commit }}
+        KEEP: ${{ inputs.keep-references }}
+      run: |
+        python3 -I "$GITHUB_ACTION_PATH/../../tools/compare-images.py" --draw "$DRAW" --draw-into "$RUNNER_TEMP/compare-images-reference"
+        cd "$REMOTE" && "$GITHUB_ACTION_PATH/../../tools/publish-images.sh" origin "$BRANCH" \
+          "$REFERENCES/$STAMP-$COMMIT" "$RUNNER_TEMP/compare-images-reference/images" --keep "$KEEP"
+        echo "The images of ${COMMIT:0:7} are kept as its reference." >>"$GITHUB_STEP_SUMMARY"
+
+    - name: Draw what is not kept, and compare
+      id: compare
+      if: steps.plan.outputs.mode == 'pull-request' || steps.plan.outputs.mode == 'release' || steps.plan.outputs.mode == 'manual'
+      shell: bash
+      env:
+        DRAW: ${{ inputs.draw }}
+        TITLE: ${{ inputs.title }}
+        THRESHOLD: ${{ inputs.threshold }}
+        BRANCH: ${{ inputs.images-branch }}
+        FOLDER: ${{ steps.plan.outputs.folder }}
+        BEFORE_COMMIT: ${{ steps.plan.outputs.before-commit }}
+        AFTER_COMMIT: ${{ steps.plan.outputs.after-commit }}
+        KEPT_BEFORE: ${{ steps.kept.outputs.before }}
+        KEPT_AFTER: ${{ steps.kept.outputs.after }}
+        RUN: ${{ github.run_id }}-${{ github.run_attempt }}
+      run: |
+        url="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/raw/$BRANCH/$FOLDER/$RUN"
+        sides=()
+        if [ -n "$KEPT_BEFORE" ]; then sides+=(--before-images "$KEPT_BEFORE"); else sides+=(--before "$BEFORE_COMMIT"); fi
+        if [ -n "$KEPT_AFTER" ]; then sides+=(--after-images "$KEPT_AFTER"); elif [ -n "$AFTER_COMMIT" ]; then sides+=(--after "$AFTER_COMMIT"); fi
+        set +e
+        python3 -I "$GITHUB_ACTION_PATH/../../tools/compare-images.py" --draw "$DRAW" "${sides[@]}" \
+          --out "$RUNNER_TEMP/compare-images" --title "$TITLE" --threshold "$THRESHOLD" --images-url "$url"
+        status=$?
+        set -e
+        {
+          echo "status=$status"
+          echo "changed=$([ "$status" = 1 ] && echo true || echo false)"
+          echo "before-kept=$([ -n "$KEPT_BEFORE" ] && echo true || echo false)"
+          echo "after-kept=$([ -n "$KEPT_AFTER" ] && echo true || echo false)"
+        } >>"$GITHUB_OUTPUT"
+
+    - name: Keep the drawn commits' images
+      if: steps.compare.outputs.status == '0' || steps.compare.outputs.status == '1'
+      shell: bash
+      env:
+        BRANCH: ${{ inputs.images-branch }}
+        REMOTE: ${{ steps.plan.outputs.remote }}
+        REFERENCES: ${{ steps.plan.outputs.references }}
+        STAMP: ${{ steps.plan.outputs.stamp }}
+        KEEP: ${{ inputs.keep-references }}
+        BEFORE_COMMIT: ${{ steps.plan.outputs.before-commit }}
+        AFTER_COMMIT: ${{ steps.plan.outputs.after-commit }}
+        BEFORE_KEPT: ${{ steps.compare.outputs.before-kept }}
+        AFTER_KEPT: ${{ steps.compare.outputs.after-kept }}
+        MODE: ${{ steps.plan.outputs.mode }}
+      run: |
+        cd "$REMOTE"
+        keep() {
+          if [ -n "$(ls -A "$RUNNER_TEMP/compare-images/$1" 2>/dev/null)" ]; then
+            "$GITHUB_ACTION_PATH/../../tools/publish-images.sh" origin "$BRANCH" "$REFERENCES/$STAMP-$2" "$RUNNER_TEMP/compare-images/$1" --keep "$KEEP"
+          fi
+        }
+        if [ "$BEFORE_KEPT" = false ]; then keep before "$BEFORE_COMMIT"; fi
+        if [ "$MODE" = release ] && [ "$AFTER_KEPT" = false ]; then keep after "$AFTER_COMMIT"; fi
+
+    - name: Publish the images of the comparison
+      if: steps.compare.outputs.status == '1'
+      shell: bash
+      env:
+        BRANCH: ${{ inputs.images-branch }}
+        FOLDER: ${{ steps.plan.outputs.folder }}
+        MODE: ${{ steps.plan.outputs.mode }}
+        REMOTE: ${{ steps.plan.outputs.remote }}
+        KEEP_RELEASES: ${{ inputs.keep-releases }}
+        RUN: ${{ github.run_id }}-${{ github.run_attempt }}
+      run: |
+        mkdir -p "$RUNNER_TEMP/compare-images-stage/$RUN"
+        cp "$RUNNER_TEMP/compare-images/images/"* "$RUNNER_TEMP/compare-images-stage/$RUN/"
+        keep=()
+        if [ "$MODE" = release ]; then keep=(--keep "$KEEP_RELEASES"); fi
+        if [ "$MODE" = manual ]; then keep=(--keep 5); fi
+        cd "$REMOTE" && "$GITHUB_ACTION_PATH/../../tools/publish-images.sh" origin "$BRANCH" "$FOLDER" "$RUNNER_TEMP/compare-images-stage" "${keep[@]}"
+
+    - name: Remove the pull request's images
+      if: steps.plan.outputs.kept-branch == 'true' && (steps.plan.outputs.mode == 'closed' || steps.plan.outputs.mode == 'pull-request' && steps.compare.outputs.status != '1')
+      shell: bash
+      env:
+        BRANCH: ${{ inputs.images-branch }}
+        FOLDER: ${{ steps.plan.outputs.folder }}
+        REMOTE: ${{ steps.plan.outputs.remote }}
+      run: cd "$REMOTE" && "$GITHUB_ACTION_PATH/../../tools/publish-images.sh" origin "$BRANCH" "$FOLDER" --remove
+
+    - name: Keep the page
+      id: upload
+      if: steps.compare.outputs.status != ''
+      uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+      with:
+        name: ${{ steps.plan.outputs.artifact }}
+        path: |
+          ${{ runner.temp }}/compare-images/index.html
+          ${{ runner.temp }}/compare-images/result.md
+          ${{ runner.temp }}/compare-images/result.json
+          ${{ runner.temp }}/compare-images/*.log
+        retention-days: ${{ inputs.retention-days }}
+
+    - name: Delete the earlier pages
+      if: steps.plan.outputs.mode == 'pull-request' || steps.plan.outputs.mode == 'closed'
+      shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.token }}
+        ARTIFACT: ${{ steps.plan.outputs.artifact }}
+        PREFIX: ${{ steps.plan.outputs.artifact-prefix }}
+        KEEP: ${{ steps.upload.outputs.artifact-id }}
+      run: |
+        if [ -n "$PREFIX" ]; then
+          ids=$(gh api "repos/$GITHUB_REPOSITORY/actions/artifacts?per_page=100" --paginate \
+            --jq ".artifacts[] | select(.name | startswith(\"$PREFIX\")) | .id")
+        else
+          ids=$(gh api "repos/$GITHUB_REPOSITORY/actions/artifacts?name=$ARTIFACT&per_page=100" --jq '.artifacts[].id')
+        fi
+        for id in $ids; do
+          if [ "$id" != "$KEEP" ]; then gh api -X DELETE "repos/$GITHUB_REPOSITORY/actions/artifacts/$id"; fi
+        done
+
+    - name: Write the comparison
+      if: steps.compare.outputs.status != ''
+      shell: bash
+      env:
+        TITLE: ${{ inputs.title }}
+        STATUS: ${{ steps.compare.outputs.status }}
+        PAGE: ${{ steps.upload.outputs.artifact-url }}
+        BEFORE_NAME: ${{ steps.plan.outputs.before-name }}
+        BEFORE_KEPT: ${{ steps.compare.outputs.before-kept }}
+        AFTER_NAME: ${{ steps.plan.outputs.after-name }}
+        THRESHOLD: ${{ inputs.threshold }}
+      run: |
+        kept="$([ "$BEFORE_KEPT" = true ] && echo "its kept images" || echo "drawn now, and kept")"
+        {
+          echo "### $TITLE"
+          echo
+          case "$STATUS" in
+          0) echo "Every image is the same as before." ;;
+          1) echo "Some images differ from before. [The page]($PAGE) shows each one under a curtain to drag." ;;
+          *) echo "The images could not be compared. [The logs]($PAGE) say why." ;;
+          esac
+          echo
+          if [ -f "$RUNNER_TEMP/compare-images/result.md" ]; then cat "$RUNNER_TEMP/compare-images/result.md"; fi
+          echo
+          echo "<sub>Before: $BEFORE_NAME ($kept). After: $AFTER_NAME. Visible over a colour distance of $THRESHOLD (pixelmatch's YIQ distance).</sub>"
+        } >"$RUNNER_TEMP/compare-images-report.md"
+        cat "$RUNNER_TEMP/compare-images-report.md" >>"$GITHUB_STEP_SUMMARY"
+
+    - name: Comment on the pull request
+      if: inputs.comment != 'off' && (steps.plan.outputs.mode == 'pull-request' && steps.compare.outputs.status != '' || steps.plan.outputs.mode == 'closed')
+      shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.token }}
+        PULL_REQUEST: ${{ inputs.pull-request }}
+        MARKER: ${{ steps.plan.outputs.marker }}
+        MODE: ${{ inputs.comment }}
+        WHEN: ${{ inputs.comment-when }}
+        STATUS: ${{ steps.compare.outputs.status }}
+        CLOSED: ${{ steps.plan.outputs.mode == 'closed' }}
+      run: |
+        previous=$(gh api "repos/$GITHUB_REPOSITORY/issues/$PULL_REQUEST/comments" --paginate \
+          --jq ".[] | select(.body | startswith(\"$MARKER\")) | .id")
+        if [ "$CLOSED" = true ]; then
+          for id in $previous; do
+            gh api "repos/$GITHUB_REPOSITORY/issues/comments/$id" --jq .body |
+              sed -E 's/<img [^>]*>/(image removed)/g' >"$RUNNER_TEMP/closed.md"
+            printf '\n_The pull request was closed: its images and its pages were deleted, the numbers stay._\n' >>"$RUNNER_TEMP/closed.md"
+            gh api -X PATCH "repos/$GITHUB_REPOSITORY/issues/comments/$id" -F body=@"$RUNNER_TEMP/closed.md" >/dev/null
+          done
+          exit 0
+        fi
+        if [ "$STATUS" = 0 ] && [ "$WHEN" != always ] && [ -z "$previous" ]; then exit 0; fi
+        { echo "$MARKER"; cat "$RUNNER_TEMP/compare-images-report.md"; } >"$RUNNER_TEMP/comment.md"
+        first=""
+        for id in $previous; do first="${first:-$id}"; done
+        if [ "$MODE" = update ] && [ -n "$first" ]; then
+          gh api -X PATCH "repos/$GITHUB_REPOSITORY/issues/comments/$first" -F body=@"$RUNNER_TEMP/comment.md" >/dev/null
+          exit 0
+        fi
+        for id in $previous; do gh api -X DELETE "repos/$GITHUB_REPOSITORY/issues/comments/$id"; done
+        gh api -X POST "repos/$GITHUB_REPOSITORY/issues/$PULL_REQUEST/comments" -F body=@"$RUNNER_TEMP/comment.md" >/dev/null
+
+    - name: Add the comparison to the release notes
+      if: steps.plan.outputs.mode == 'release' && inputs.release-notes == 'true' && steps.compare.outputs.status != ''
+      shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.token }}
+        TAG: ${{ steps.plan.outputs.tag }}
+        SLUG: ${{ steps.plan.outputs.slug }}
+      run: |
+        start="<!-- compare-images: $SLUG -->"
+        end="<!-- /compare-images: $SLUG -->"
+        gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json body --jq .body |
+          awk -v start="$start" -v end="$end" '$0 == start { skip = 1 } !skip { print } $0 == end { skip = 0 }' >"$RUNNER_TEMP/notes.md"
+        { echo; echo "$start"; cat "$RUNNER_TEMP/compare-images-report.md"; echo "$end"; } >>"$RUNNER_TEMP/notes.md"
+        gh release edit "$TAG" --repo "$GITHUB_REPOSITORY" --notes-file "$RUNNER_TEMP/notes.md" >/dev/null
+
+    - name: Fail when the images could not be compared, or changed and must not
+      if: steps.compare.outputs.status != ''
+      shell: bash
+      env:
+        STATUS: ${{ steps.compare.outputs.status }}
+        FAIL_ON_CHANGE: ${{ inputs.fail-on-change }}
+      run: |
+        if [ "$STATUS" != 0 ] && [ "$STATUS" != 1 ]; then exit 1; fi
+        if [ "$STATUS" = 1 ] && [ "$FAIL_ON_CHANGE" = true ]; then exit 1; fi

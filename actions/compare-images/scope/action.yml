@@ -1,0 +1,121 @@
+name: Decide what compare-images does on this event
+description: >-
+  Answers whether compare-images has something to do, and what it compares with. A pull request
+  that touches a file the paths pattern matches, or carries the label, is compared with its
+  target. A closed pull request is cleaned up. A push that touches such a file keeps its
+  reference. A completed release run whose commit carries a vX.Y.Z tag is compared with the
+  previous release. A comment that starts with the command, by the owner, a member or a
+  collaborator, compares its pull request with what follows the command: nothing for the target,
+  start for where the pull request branched, or any commit, branch or tag. A manual run compares
+  with the before input. Run it before the setup the drawing needs, so a run with nothing to draw
+  skips that setup too. The checkout must hold the history and the tags (fetch-depth: 0).
+
+inputs:
+  paths:
+    description: >-
+      An extended regular expression over the files a pull request or a push changes; empty
+      matches any.
+    default: ""
+  label:
+    description: A label that asks for the comparison on any pull request; empty for none.
+    default: ""
+  command:
+    description: The word a comment starts with to ask for a comparison; empty for none.
+    default: /compare-images
+  before:
+    description: What a manual run compares with.
+    default: target
+  token:
+    description: A token that may react to the comment.
+    default: ${{ github.token }}
+
+outputs:
+  run:
+    description: true when images must be drawn and compared, or kept.
+    value: ${{ steps.scope.outputs.run }}
+  before:
+    description: What compare-images compares with, for its before input.
+    value: ${{ steps.scope.outputs.before }}
+  labelled:
+    description: true when the label, a command or a manual run asked, so it comments even when nothing changed.
+    value: ${{ steps.scope.outputs.labelled }}
+  closed:
+    description: true when the pull request was closed, and only the cleanup runs.
+    value: ${{ steps.scope.outputs.closed }}
+
+runs:
+  using: composite
+  steps:
+    - name: Decide
+      id: scope
+      shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.token }}
+        PATHS: ${{ inputs.paths }}
+        LABEL: ${{ inputs.label }}
+        COMMAND: ${{ inputs.command }}
+        MANUAL_BEFORE: ${{ inputs.before }}
+        ACTION: ${{ github.event.action }}
+        ADDED: ${{ github.event.label.name }}
+        LABELS: ${{ toJSON(github.event.pull_request.labels.*.name) }}
+        BASE: ${{ github.event.pull_request.base.sha }}
+        PUSHED_FROM: ${{ github.event.before }}
+        COMMENT: ${{ github.event.comment.body }}
+        COMMENT_ID: ${{ github.event.comment.id }}
+        AUTHOR: ${{ github.event.comment.author_association }}
+        ON_PULL_REQUEST: ${{ github.event.issue.pull_request != null }}
+        RUN_CONCLUSION: ${{ github.event.workflow_run.conclusion }}
+      run: |
+        answer() {
+          { echo "run=$1"; echo "before=$2"; echo "labelled=$3"; echo "closed=$4"; } >>"$GITHUB_OUTPUT"
+        }
+        touches() { [ -z "$PATHS" ] || git diff --name-only "$1" "$2" | grep -qE -- "$PATHS"; }
+        case "$GITHUB_EVENT_NAME" in
+        push)
+          if ! git cat-file -e "$PUSHED_FROM^{commit}" 2>/dev/null || touches "$PUSHED_FROM" "$GITHUB_SHA"; then
+            answer true keep false false
+          else
+            answer false keep false false
+            echo "No file this push changes can change an image: no reference to keep." >>"$GITHUB_STEP_SUMMARY"
+          fi ;;
+        pull_request)
+          labelled=false
+          if [ -n "$LABEL" ] && printf '%s' "$LABELS" | grep -qF "\"$LABEL\""; then labelled=true; fi
+          if [ "$ACTION" = closed ]; then
+            answer false target "$labelled" true
+          elif [ "$ACTION" = labeled ] && [ "$ADDED" != "$LABEL" ]; then
+            answer false target "$labelled" false
+          elif [ "$labelled" = true ] || touches "$BASE" HEAD; then
+            answer true target "$labelled" false
+          else
+            answer false target false false
+            echo "No file this pull request changes can change an image." >>"$GITHUB_STEP_SUMMARY"
+          fi ;;
+        issue_comment)
+          first="$(printf '%s\n' "$COMMENT" | head -1 | tr -s ' ' | sed 's/[[:space:]]*$//')"
+          word="${first%% *}"
+          argument="$(printf '%s' "$first" | cut -s -d' ' -f2)"
+          case "$AUTHOR" in OWNER | MEMBER | COLLABORATOR) trusted=true ;; *) trusted=false ;; esac
+          if [ -n "$COMMAND" ] && [ "$ON_PULL_REQUEST" = true ] && [ "$word" = "$COMMAND" ] && [ "$trusted" = true ]; then
+            case "$argument" in
+            "" | target) before=target ;;
+            start | depart | départ) before=start ;;
+            *) before="$argument" ;;
+            esac
+            gh api -X POST "repos/$GITHUB_REPOSITORY/issues/comments/$COMMENT_ID/reactions" -f content=eyes >/dev/null || true
+            answer true "$before" true false
+          else
+            answer false target false false
+          fi ;;
+        workflow_run)
+          if [ "$RUN_CONCLUSION" = success ] && git describe --exact-match --tags --match 'v[0-9]*' HEAD >/dev/null 2>&1; then
+            answer true previous-release false false
+          else
+            answer false previous-release false false
+            echo "No release was cut by this run." >>"$GITHUB_STEP_SUMMARY"
+          fi ;;
+        workflow_dispatch)
+          answer true "$MANUAL_BEFORE" true false ;;
+        *)
+          answer false target false false ;;
+        esac
