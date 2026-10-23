@@ -106,4 +106,62 @@ tools/release.sh --dry-run kernel/include/kernel/config.h KERNEL    # from a rep
 tools/test-release.sh                                               # the changelog and the release, tested
 ```
 
+`actions/compare-images` shows, on a pull request, what it changes in the images a repository
+draws. The repository gives a command that writes its images (PNG or PPM) into `$IMAGES_DIR`; the
+action runs it on the base and on the head of the pull request, on one runner with one compiler, so
+a difference is the code's, and nothing is recorded in the repository. `tools/compare-images.py`
+compares them as [pixelmatch](https://github.com/mapbox/pixelmatch) does. The action then:
+- writes the table to the run's summary;
+- keeps a page with each changed image under a curtain as an artifact;
+- posts a comment with the before, the after and the diff of each changed image inline. The images
+  live on the `compare-images` branch, one folder per open pull request, in a single commit
+  rewritten each time (`tools/publish-images.sh`), so the branch keeps no history of old images.
+
+A new run replaces the comment, its images and the previous runs' pages. Closing the pull request
+deletes the images and the pages, and keeps the comment's numbers. `actions/compare-images/scope`
+decides beforehand, so a pull request that changes nothing drawn skips the setup too: it runs on a
+pull request that touches a file `paths` matches, or that carries `label`.
+
+```yaml
+name: Frames
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, labeled, closed]
+permissions:
+  contents: write
+  pull-requests: write
+  actions: write
+jobs:
+  compare:
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - id: scope
+        uses: MasterLaplace/.github/actions/compare-images/scope@<commit> # main
+        with:
+          paths: '^(render|samples|engine)/'
+          label: frames
+      # the setup the drawing needs, under: if: steps.scope.outputs.run == 'true'
+      - if: steps.scope.outputs.run == 'true' || steps.scope.outputs.closed == 'true'
+        uses: MasterLaplace/.github/actions/compare-images@<commit> # main
+        with:
+          title: Reference frames
+          draw: xmake run lpl-frames --write "$IMAGES_DIR"
+          comment-when: ${{ steps.scope.outputs.labelled == 'true' && 'always' || 'changed' }}
+```
+
+Its other inputs: `threshold` (0.1), `comment` (`replace`, `update` or `off`), `images-branch`
+(empty for a comment without images), `retention-days` (14) and `fail-on-change` (false: a changed
+image is for the reviewer to judge).
+
+```bash
+python3 tools/compare-images.py --draw 'xmake run lpl-frames --write "$IMAGES_DIR"' --before main   # from a repository's root
+python3 tools/compare-images.py --compare before/ after/ --out build/compare-images                  # two directories already drawn
+tools/test-compare-images.sh                                                                         # the comparison and the images branch, tested
+```
+
 A change to any of these goes through a pull request here, like code.

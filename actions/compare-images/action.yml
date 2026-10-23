@@ -1,0 +1,220 @@
+name: Compare the images two commits draw
+description: >-
+  Draws the repository's images on the base and on the head of a pull request with the draw
+  command, on this runner, and shows where their pixels changed: a table in the run's summary,
+  a page with each changed image under a curtain as an artifact, and a comment on the pull
+  request with the images inline. A new run replaces the previous comment and deletes the
+  previous runs' artifacts and images; closing the pull request deletes them too. Runs
+  tools/compare-images.py and tools/publish-images.sh. The checkout must hold the base commit
+  (fetch-depth: 0). Needs contents, pull-requests and actions write permissions.
+
+inputs:
+  draw:
+    description: >-
+      The shell command that draws the images, run at the root of each side's tree with
+      IMAGES_DIR, the directory to write them into (PNG or binary PPM, one file per image), and
+      IMAGES_SIDE, before or after.
+    required: true
+  title:
+    description: The heading of the comment and of the page; one comment per title.
+    default: Images compared
+  before:
+    description: The commit the pull request is compared with.
+    default: ${{ github.event.pull_request.base.sha }}
+  threshold:
+    description: The colour distance, from 0 to 1, over which a changed pixel counts as visible.
+    default: "0.1"
+  comment:
+    description: >-
+      replace to delete the previous comment and post a new one, so it comes after the latest
+      push; update to edit the previous comment in place; off for no comment.
+    default: replace
+  comment-when:
+    description: changed to comment only when an image differs, always to comment every time.
+    default: changed
+  images-branch:
+    description: >-
+      The branch the images of the comment are published on, one folder per open pull request;
+      empty for a comment without images.
+    default: compare-images
+  retention-days:
+    description: How long the run keeps the page.
+    default: "14"
+  fail-on-change:
+    description: true to fail the job when an image differs.
+    default: "false"
+  closed:
+    description: true when the pull request was closed, to delete its artifacts and its images.
+    default: ${{ github.event.action == 'closed' }}
+  token:
+    description: A token that may push the images branch, comment, and delete artifacts.
+    default: ${{ github.token }}
+
+outputs:
+  changed:
+    description: true when an image differs, or only one side has it.
+    value: ${{ steps.compare.outputs.changed }}
+
+runs:
+  using: composite
+  steps:
+    - name: Name what this pull request owns
+      id: names
+      shell: bash
+      env:
+        TITLE: ${{ inputs.title }}
+        PULL_REQUEST: ${{ github.event.pull_request.number }}
+      run: |
+        slug="$(printf '%s' "$TITLE" | tr '[:upper:]' '[:lower:]' | tr -cs 'a-z0-9' '-' | sed 's/^-//; s/-$//')"
+        echo "slug=$slug" >>"$GITHUB_OUTPUT"
+        echo "artifact=compare-images-$slug-$PULL_REQUEST" >>"$GITHUB_OUTPUT"
+        echo "folder=$slug/pr-$PULL_REQUEST" >>"$GITHUB_OUTPUT"
+        echo "marker=<!-- compare-images: $slug -->" >>"$GITHUB_OUTPUT"
+        echo "remote=$RUNNER_TEMP/compare-images-remote" >>"$GITHUB_OUTPUT"
+
+    - name: Draw and compare the images
+      id: compare
+      if: inputs.closed != 'true'
+      shell: bash
+      env:
+        DRAW: ${{ inputs.draw }}
+        BEFORE: ${{ inputs.before }}
+        TITLE: ${{ inputs.title }}
+        THRESHOLD: ${{ inputs.threshold }}
+        BRANCH: ${{ inputs.images-branch }}
+        FOLDER: ${{ steps.names.outputs.folder }}
+        RUN: ${{ github.run_id }}-${{ github.run_attempt }}
+      run: |
+        url=""
+        if [ -n "$BRANCH" ]; then url="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/raw/$BRANCH/$FOLDER/$RUN"; fi
+        set +e
+        python3 -I "$GITHUB_ACTION_PATH/../../tools/compare-images.py" --draw "$DRAW" --before "$BEFORE" \
+          --out "$RUNNER_TEMP/compare-images" --title "$TITLE" --threshold "$THRESHOLD" --images-url "$url"
+        status=$?
+        set -e
+        echo "status=$status" >>"$GITHUB_OUTPUT"
+        echo "changed=$([ "$status" = 1 ] && echo true || echo false)" >>"$GITHUB_OUTPUT"
+        if [ -f "$RUNNER_TEMP/compare-images/result.md" ]; then
+          { echo "### $TITLE"; echo; cat "$RUNNER_TEMP/compare-images/result.md"; } >>"$GITHUB_STEP_SUMMARY"
+        fi
+
+    - name: Prepare to publish
+      shell: bash
+      env:
+        TOKEN: ${{ inputs.token }}
+        REMOTE: ${{ steps.names.outputs.remote }}
+      run: |
+        git init --quiet "$REMOTE"
+        git -C "$REMOTE" remote add origin "https://x-access-token:$TOKEN@${GITHUB_SERVER_URL#https://}/$GITHUB_REPOSITORY.git"
+
+    - name: Publish the images of the comment
+      if: inputs.closed != 'true' && inputs.images-branch != '' && steps.compare.outputs.status == '1'
+      shell: bash
+      env:
+        BRANCH: ${{ inputs.images-branch }}
+        FOLDER: ${{ steps.names.outputs.folder }}
+        REMOTE: ${{ steps.names.outputs.remote }}
+        RUN: ${{ github.run_id }}-${{ github.run_attempt }}
+      run: |
+        mkdir -p "$RUNNER_TEMP/compare-images-stage/$RUN"
+        cp "$RUNNER_TEMP/compare-images/images/"* "$RUNNER_TEMP/compare-images-stage/$RUN/"
+        cd "$REMOTE" && "$GITHUB_ACTION_PATH/../../tools/publish-images.sh" origin "$BRANCH" "$FOLDER" "$RUNNER_TEMP/compare-images-stage"
+
+    - name: Remove the images of the pull request
+      if: inputs.closed != 'true' && inputs.images-branch != '' && steps.compare.outputs.status != '1' || inputs.closed == 'true' && inputs.images-branch != ''
+      shell: bash
+      env:
+        BRANCH: ${{ inputs.images-branch }}
+        FOLDER: ${{ steps.names.outputs.folder }}
+        REMOTE: ${{ steps.names.outputs.remote }}
+      run: |
+        if git -C "$REMOTE" ls-remote --exit-code origin "refs/heads/$BRANCH" >/dev/null; then
+          cd "$REMOTE" && "$GITHUB_ACTION_PATH/../../tools/publish-images.sh" origin "$BRANCH" "$FOLDER" --remove
+        fi
+
+    - name: Keep the page
+      id: upload
+      if: inputs.closed != 'true' && steps.compare.outputs.status != ''
+      uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+      with:
+        name: ${{ steps.names.outputs.artifact }}
+        path: |
+          ${{ runner.temp }}/compare-images/index.html
+          ${{ runner.temp }}/compare-images/result.md
+          ${{ runner.temp }}/compare-images/result.json
+          ${{ runner.temp }}/compare-images/*.log
+        retention-days: ${{ inputs.retention-days }}
+
+    - name: Delete the earlier pages
+      shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.token }}
+        ARTIFACT: ${{ steps.names.outputs.artifact }}
+        KEEP: ${{ steps.upload.outputs.artifact-id }}
+      run: |
+        gh api "repos/$GITHUB_REPOSITORY/actions/artifacts?name=$ARTIFACT&per_page=100" --jq '.artifacts[].id' |
+          while read -r id; do
+            if [ "$id" != "$KEEP" ]; then gh api -X DELETE "repos/$GITHUB_REPOSITORY/actions/artifacts/$id"; fi
+          done
+
+    - name: Comment on the pull request
+      if: inputs.comment != 'off'
+      shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.token }}
+        PULL_REQUEST: ${{ github.event.pull_request.number }}
+        MARKER: ${{ steps.names.outputs.marker }}
+        TITLE: ${{ inputs.title }}
+        MODE: ${{ inputs.comment }}
+        WHEN: ${{ inputs.comment-when }}
+        CLOSED: ${{ inputs.closed }}
+        STATUS: ${{ steps.compare.outputs.status }}
+        PAGE: ${{ steps.upload.outputs.artifact-url }}
+        BEFORE: ${{ inputs.before }}
+        AFTER: ${{ github.event.pull_request.head.sha }}
+        THRESHOLD: ${{ inputs.threshold }}
+      run: |
+        previous=$(gh api "repos/$GITHUB_REPOSITORY/issues/$PULL_REQUEST/comments" --paginate \
+          --jq ".[] | select(.body | startswith(\"$MARKER\")) | .id")
+        if [ "$CLOSED" = true ]; then
+          for id in $previous; do
+            gh api "repos/$GITHUB_REPOSITORY/issues/comments/$id" --jq .body |
+              sed -E 's/<img [^>]*>/(image removed)/g' >"$RUNNER_TEMP/closed.md"
+            printf '\n_The pull request was closed: its images and its page were deleted, the numbers stay._\n' >>"$RUNNER_TEMP/closed.md"
+            gh api -X PATCH "repos/$GITHUB_REPOSITORY/issues/comments/$id" -F body=@"$RUNNER_TEMP/closed.md" >/dev/null
+          done
+          exit 0
+        fi
+        if [ "$STATUS" = 0 ] && [ "$WHEN" != always ] && [ -z "$previous" ]; then exit 0; fi
+        {
+          echo "$MARKER"
+          echo "### $TITLE"
+          echo
+          case "$STATUS" in
+          0) echo "Every image is the same as on the base." ;;
+          1) echo "Some images differ from the base. [The page]($PAGE) shows each one under a curtain to drag." ;;
+          *) echo "The images could not be compared. [The logs]($PAGE) say why." ;;
+          esac
+          echo
+          if [ -f "$RUNNER_TEMP/compare-images/result.md" ]; then cat "$RUNNER_TEMP/compare-images/result.md"; fi
+          echo
+          echo "<sub>Base ${BEFORE:0:7}, head ${AFTER:0:7}; visible over a colour distance of $THRESHOLD (pixelmatch's YIQ distance).</sub>"
+        } >"$RUNNER_TEMP/comment.md"
+        first=""
+        for id in $previous; do first="${first:-$id}"; done
+        if [ "$MODE" = update ] && [ -n "$first" ]; then
+          gh api -X PATCH "repos/$GITHUB_REPOSITORY/issues/comments/$first" -F body=@"$RUNNER_TEMP/comment.md" >/dev/null
+          exit 0
+        fi
+        for id in $previous; do gh api -X DELETE "repos/$GITHUB_REPOSITORY/issues/comments/$id"; done
+        gh api -X POST "repos/$GITHUB_REPOSITORY/issues/$PULL_REQUEST/comments" -F body=@"$RUNNER_TEMP/comment.md" >/dev/null
+
+    - name: Fail when the images could not be compared, or changed and must not
+      if: inputs.closed != 'true'
+      shell: bash
+      env:
+        STATUS: ${{ steps.compare.outputs.status }}
+        FAIL_ON_CHANGE: ${{ inputs.fail-on-change }}
+      run: |
+        if [ "$STATUS" != 0 ] && [ "$STATUS" != 1 ]; then exit 1; fi
+        if [ "$STATUS" = 1 ] && [ "$FAIL_ON_CHANGE" = true ]; then exit 1; fi

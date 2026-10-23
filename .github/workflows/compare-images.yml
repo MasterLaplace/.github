@@ -1,0 +1,53 @@
+name: compare-images
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, closed]
+    paths:
+      - "tools/compare-images.py"
+      - "tools/publish-images.sh"
+      - "tools/test-compare-images.sh"
+      - "actions/compare-images/**"
+      - ".github/workflows/compare-images.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    if: github.event.action != 'closed'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Test the comparison and the images branch
+        run: tools/test-compare-images.sh
+
+  action:
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+      pull-requests: write
+      actions: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Decide
+        id: scope
+        uses: ./actions/compare-images/scope
+      - name: Draw three images on each side, and compare them on this pull request
+        if: steps.scope.outputs.run == 'true' || steps.scope.outputs.closed == 'true'
+        uses: ./actions/compare-images
+        with:
+          title: Action self-test
+          comment-when: always
+          draw: >-
+            python3 -c 'import os;
+            d = os.environ["IMAGES_DIR"]; after = os.environ["IMAGES_SIDE"] == "after";
+            pixel = lambda x, y, shade: (x * 4, y * 6, 128 + (shade if 20 <= x < 44 and 10 <= y < 30 else 0));
+            image = lambda shade: b"P6\n64 40\n255\n" + bytes(v for y in range(40) for x in range(64) for v in pixel(x, y, shade));
+            open(d + "/same.ppm", "wb").write(image(0));
+            open(d + "/square.ppm", "wb").write(image(80 if after else 0));
+            after and open(d + "/only-after.ppm", "wb").write(image(40))'
