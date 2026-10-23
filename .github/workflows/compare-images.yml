@@ -42,7 +42,7 @@ jobs:
       - name: Decide
         id: scope
         uses: ./actions/compare-images/scope
-      - name: Draw three images on each side, and compare them on this pull request
+      - name: Draw three images, two of which a merge commit draws differently, and compare them
         if: steps.scope.outputs.run == 'true' || steps.scope.outputs.closed == 'true'
         uses: ./actions/compare-images
         with:
@@ -50,10 +50,11 @@ jobs:
           before: ${{ steps.scope.outputs.before }}
           comment-when: always
           draw: >-
-            python3 -c 'import os;
-            d = os.environ["IMAGES_DIR"]; after = os.environ["IMAGES_SIDE"] == "after";
+            python3 -c 'import os, subprocess;
+            d = os.environ["IMAGES_DIR"];
+            merge = subprocess.run(["git", "rev-parse", "--verify", "--quiet", "HEAD^2"], capture_output=True).returncode == 0;
             pixel = lambda x, y, shade: (x * 4, y * 6, 128 + (shade if 20 <= x < 44 and 10 <= y < 30 else 0));
             image = lambda shade: b"P6\n64 40\n255\n" + bytes(v for y in range(40) for x in range(64) for v in pixel(x, y, shade));
             open(d + "/same.ppm", "wb").write(image(0));
-            open(d + "/square.ppm", "wb").write(image(80 if after else 0));
-            after and open(d + "/only-after.ppm", "wb").write(image(40))'
+            open(d + "/square.ppm", "wb").write(image(80 if merge else 0));
+            merge and open(d + "/only-on-a-merge.ppm", "wb").write(image(40))'

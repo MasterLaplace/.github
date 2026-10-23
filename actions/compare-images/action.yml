@@ -16,8 +16,9 @@ inputs:
   draw:
     description: >-
       The shell command that draws the images, run at the root of a tree with IMAGES_DIR, the
-      directory to write them into (PNG or binary PPM, one file per image), and IMAGES_SIDE,
-      before or after.
+      directory to write them into (PNG or binary PPM, one file per image). It draws a commit
+      the same way whichever side it stands for: a commit's images are kept and read back as
+      either side.
     required: true
   before:
     description: >-
