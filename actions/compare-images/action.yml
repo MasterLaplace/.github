@@ -342,7 +342,13 @@ runs:
         AFTER_NAME: ${{ steps.plan.outputs.after-name }}
         THRESHOLD: ${{ inputs.threshold }}
       run: |
-        kept="$([ "$BEFORE_KEPT" = true ] && echo "its kept images" || echo "drawn now, and kept")"
+        if [ "$BEFORE_KEPT" = true ]; then
+          kept="its kept images"
+        elif [ -z "$(ls -A "$RUNNER_TEMP/compare-images/before" 2>/dev/null)" ]; then
+          kept="it draws no image"
+        else
+          kept="drawn now, and kept"
+        fi
         {
           echo "### $TITLE"
           echo
