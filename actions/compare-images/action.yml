@@ -16,8 +16,9 @@ inputs:
   draw:
     description: >-
       The shell command that draws the images, run at the root of a tree with IMAGES_DIR, the
-      directory to write them into (PNG or binary PPM, one file per image), and IMAGES_SIDE,
-      before or after.
+      directory to write them into (PNG or binary PPM, one file per image). It draws a commit
+      the same way whichever side it stands for: a commit's images are kept and read back as
+      either side.
     required: true
   before:
     description: >-
@@ -342,7 +343,13 @@ runs:
         AFTER_NAME: ${{ steps.plan.outputs.after-name }}
         THRESHOLD: ${{ inputs.threshold }}
       run: |
-        kept="$([ "$BEFORE_KEPT" = true ] && echo "its kept images" || echo "drawn now, and kept")"
+        if [ "$BEFORE_KEPT" = true ]; then
+          kept="its kept images"
+        elif [ -z "$(ls -A "$RUNNER_TEMP/compare-images/before" 2>/dev/null)" ]; then
+          kept="it draws no image"
+        else
+          kept="drawn now, and kept"
+        fi
         {
           echo "### $TITLE"
           echo

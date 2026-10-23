@@ -10,7 +10,8 @@ usage: tools/compare-images.py --draw <command> (--before <commit> | --before-im
 
 --draw runs <command> through the shell at the root of each side's tree, with IMAGES_DIR set to
 the directory it must write its images into (PNG or binary PPM, one file per image, named after
-it) and IMAGES_SIDE set to before or after. The before side is <commit>, checked out in a
+it). The command must draw a commit the same way whichever side it stands for: a commit's images
+are kept and read back as either. The before side is <commit>, checked out in a
 temporary worktree; the after side is --after, or the working tree when there is none. Both sides
 are drawn on this machine, so a difference is the code's. --before-images takes the before side
 from a directory instead, a reference kept from an earlier drawing, so it is not drawn again;
@@ -391,7 +392,7 @@ def write_outputs(results, output, title, threshold, images_url):
 def draw_side(tree, command, directory, side):
     shutil.rmtree(directory, ignore_errors=True)
     directory.mkdir(parents=True)
-    environment = dict(os.environ, IMAGES_DIR=str(directory), IMAGES_SIDE=side)
+    environment = dict(os.environ, IMAGES_DIR=str(directory))
     log = directory.parent / f"{side}.log"
     with open(log, "w") as stream:
         status = subprocess.run(command, shell=True, cwd=tree, env=environment, stdout=stream, stderr=subprocess.STDOUT).returncode
