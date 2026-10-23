@@ -6,9 +6,10 @@ usage() {
 Usage: test-compare-images.sh
 
 Tests tools/compare-images.py and tools/publish-images.sh: the comparison's self-test, a draw
-from two commits of a scratch repository, and the images branch against a local bare repository
-(a folder published, replaced by a newer run, removed, and a folder name that would escape
-refused). Prints one PASS or FAIL line per check, then ALL PASS or the number of failures.
+from two commits of a scratch repository, a reference drawn once and compared against, and the
+images branch against a local bare repository
+(a folder published, replaced by a newer run, removed, the newest references kept, and a folder
+name that would escape refused). Prints one PASS or FAIL line per check, then ALL PASS or the number of failures.
 EOF
 }
 
@@ -46,6 +47,18 @@ record $? "a draw from two commits finds the image that changed, and the one tha
 record $? "and writes its diff, the page and the result"
 [ "$(git worktree list | wc -l)" -eq 1 ]
 record $? "and leaves no worktree behind"
+python3 -I "$compare" --draw "$draw" --draw-into "$work/reference" --after HEAD~1 >/dev/null 2>&1
+[ -f "$work/reference/images/square.ppm" ] && [ -f "$work/reference/images/side.ppm" ]
+record $? "--draw-into draws one side, to keep as a reference"
+python3 -I "$compare" --draw "$draw" --before-images "$work/reference/images" --out "$work/kept" >"$work/kept-table" 2>&1
+[ $? -eq 1 ] && grep -q '| square | changed |' "$work/kept-table" && [ "$(git worktree list | wc -l)" -eq 1 ]
+record $? "a kept reference stands for the before side, which is not drawn again"
+python3 -I "$compare" --draw "exit 3" --before-images "$work/reference/images" --after-images "$work/reference/images" --out "$work/both-kept" >/dev/null 2>&1
+[ $? -eq 0 ]
+record $? "two kept references are compared without drawing anything"
+python3 -I "$compare" --draw "$draw" --before HEAD~1 --before-images "$work/reference/images" >/dev/null 2>&1
+[ $? -eq 2 ]
+record $? "a before commit and a kept reference together are refused"
 python3 -I "$compare" --draw "exit 3" --before HEAD~1 --out "$work/failed" >/dev/null 2>&1
 [ $? -eq 2 ]
 record $? "a side that cannot be drawn exits with 2"
@@ -69,6 +82,9 @@ record $? "the branch is one commit, with no history of old images"
 "$publish" origin images frames/pr-1 --remove >/dev/null 2>&1
 [ "$(listing)" = "frames/pr-2/run-2/a.png " ]
 record $? "a folder is removed"
+for name in 100-aaa 200-bbb 300-ccc; do "$publish" origin images frames/references/$name "$work/first" --keep 2 >/dev/null 2>&1; done
+[ "$(listing)" = "frames/pr-2/run-2/a.png frames/references/200-bbb/run-1/a.png frames/references/300-ccc/run-1/a.png " ]
+record $? "--keep keeps the newest references beside the folder, and leaves the rest of the branch"
 "$publish" origin images ../escape "$work/first" >/dev/null 2>&1
 [ $? -eq 2 ]
 record $? "a folder that would escape the branch is refused"

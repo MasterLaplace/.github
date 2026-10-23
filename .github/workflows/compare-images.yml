@@ -1,6 +1,11 @@
 name: compare-images
 
 on:
+  push:
+    branches: [main]
+    paths:
+      - "actions/compare-images/**"
+      - ".github/workflows/compare-images.yml"
   pull_request:
     types: [opened, synchronize, reopened, closed]
     paths:
@@ -15,7 +20,7 @@ permissions:
 
 jobs:
   test:
-    if: github.event.action != 'closed'
+    if: github.event_name == 'pull_request' && github.event.action != 'closed'
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -23,7 +28,7 @@ jobs:
         run: tools/test-compare-images.sh
 
   action:
-    if: github.event.pull_request.head.repo.full_name == github.repository
+    if: github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-24.04
     permissions:
       contents: write
@@ -42,6 +47,7 @@ jobs:
         uses: ./actions/compare-images
         with:
           title: Action self-test
+          before: ${{ steps.scope.outputs.before }}
           comment-when: always
           draw: >-
             python3 -c 'import os;

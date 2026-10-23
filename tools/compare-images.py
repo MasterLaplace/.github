@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
 """Draws the same images from two commits and shows where their pixels changed.
 
-usage: tools/compare-images.py --draw <command> --before <commit> [--after <commit>] [--out <dir>]
+usage: tools/compare-images.py --draw <command> (--before <commit> | --before-images <dir>)
+                               [--after <commit> | --after-images <dir>] [--out <dir>]
                                [--title <text>] [--threshold <t>] [--images-url <url>]
+       tools/compare-images.py --draw <command> --draw-into <dir> [--after <commit>]
        tools/compare-images.py --compare <before-dir> <after-dir> [--out <dir>] [...]
        tools/compare-images.py --self-test
 
@@ -10,8 +12,10 @@ usage: tools/compare-images.py --draw <command> --before <commit> [--after <comm
 the directory it must write its images into (PNG or binary PPM, one file per image, named after
 it) and IMAGES_SIDE set to before or after. The before side is <commit>, checked out in a
 temporary worktree; the after side is --after, or the working tree when there is none. Both sides
-are drawn on this machine, so a difference is the code's. --compare takes two directories of
-images already drawn.
+are drawn on this machine, so a difference is the code's. --before-images takes the before side
+from a directory instead, a reference kept from an earlier drawing, so it is not drawn again;
+--after-images does the same for the after side. --draw-into draws the after side into a directory and stops, to keep it as a reference.
+--compare takes two directories of images already drawn.
 
 An image differs visibly when the perceived distance between two of its pixels, in the YIQ space,
 passes the threshold (0.1 by default); it differs at all when one pixel is not the same. Into
@@ -397,22 +401,35 @@ def draw_side(tree, command, directory, side):
 
 def draw_and_compare(arguments):
     root = pathlib.Path(subprocess.run(["git", "rev-parse", "--show-toplevel"], check=True, capture_output=True, text=True).stdout.strip())
-    output = pathlib.Path(arguments.out).resolve()
+    output = pathlib.Path(arguments.draw_into or arguments.out).resolve()
     output.mkdir(parents=True, exist_ok=True)
+    if arguments.draw_into:
+        sides = [("after", arguments.after, output / "images")]
+    else:
+        sides = []
+        for side, commit, kept in (("before", arguments.before, arguments.before_images),
+                                   ("after", arguments.after, arguments.after_images)):
+            if kept:
+                shutil.rmtree(output / side, ignore_errors=True)
+                shutil.copytree(kept, output / side)
+            else:
+                sides.append((side, commit, output / side))
     with tempfile.TemporaryDirectory() as scratch:
         trees = []
         try:
-            for side, commit in (("before", arguments.before), ("after", arguments.after)):
+            for side, commit, directory in sides:
                 if commit is None:
-                    draw_side(root, arguments.draw, output / side, side)
+                    draw_side(root, arguments.draw, directory, side)
                     continue
                 tree = pathlib.Path(scratch) / side
                 subprocess.run(["git", "-C", str(root), "worktree", "add", "--detach", "--quiet", str(tree), commit], check=True)
                 trees.append(tree)
-                draw_side(tree, arguments.draw, output / side, side)
+                draw_side(tree, arguments.draw, directory, side)
         finally:
             for tree in trees:
                 subprocess.run(["git", "-C", str(root), "worktree", "remove", "--force", str(tree)], check=False)
+    if arguments.draw_into:
+        return 0
     results = compare_directories(output / "before", output / "after", output, arguments.threshold)
     return write_outputs(results, output, arguments.title, arguments.threshold, arguments.images_url)
 
@@ -472,6 +489,9 @@ def main():
     parser = argparse.ArgumentParser(add_help=False)
     parser.add_argument("--draw")
     parser.add_argument("--before")
+    parser.add_argument("--before-images")
+    parser.add_argument("--after-images")
+    parser.add_argument("--draw-into")
     parser.add_argument("--after")
     parser.add_argument("--compare", nargs=2, metavar=("BEFORE", "AFTER"))
     parser.add_argument("--out", default="build/compare-images")
@@ -495,9 +515,17 @@ def main():
             output.mkdir(parents=True, exist_ok=True)
             results = compare_directories(pathlib.Path(arguments.compare[0]), pathlib.Path(arguments.compare[1]), output, arguments.threshold)
             return write_outputs(results, output, arguments.title, arguments.threshold, arguments.images_url)
-        if not arguments.draw or not arguments.before:
+        sources = [arguments.before, arguments.before_images, arguments.draw_into]
+        if not arguments.draw or sum(source is not None for source in sources) != 1:
             print(__doc__, file=sys.stderr)
             return 2
+        if arguments.after and arguments.after_images:
+            print(__doc__, file=sys.stderr)
+            return 2
+        for kept in (arguments.before_images, arguments.after_images):
+            if kept and not pathlib.Path(kept).is_dir():
+                print(f"compare-images: no directory {kept}", file=sys.stderr)
+                return 2
         return draw_and_compare(arguments)
     except (Unusable, subprocess.CalledProcessError) as error:
         print(f"compare-images: {error}", file=sys.stderr)

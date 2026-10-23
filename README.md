@@ -106,57 +106,83 @@ tools/release.sh --dry-run kernel/include/kernel/config.h KERNEL    # from a rep
 tools/test-release.sh                                               # the changelog and the release, tested
 ```
 
-`actions/compare-images` shows, on a pull request, what it changes in the images a repository
-draws. The repository gives a command that writes its images (PNG or PPM) into `$IMAGES_DIR`; the
-action runs it on the base and on the head of the pull request, on one runner with one compiler, so
-a difference is the code's, and nothing is recorded in the repository. `tools/compare-images.py`
-compares them as [pixelmatch](https://github.com/mapbox/pixelmatch) does. The action then:
-- writes the table to the run's summary;
-- keeps a page with each changed image under a curtain as an artifact;
-- posts a comment with the before, the after and the diff of each changed image inline. The images
-  live on the `compare-images` branch, one folder per open pull request, in a single commit
-  rewritten each time (`tools/publish-images.sh`), so the branch keeps no history of old images.
+`actions/compare-images` shows what a change does to the images a repository draws. The repository
+gives a command that writes its images (PNG or PPM) into `$IMAGES_DIR`, and
+`tools/compare-images.py` compares two commits' images as [pixelmatch](https://github.com/mapbox/pixelmatch)
+does. A commit's images are drawn once, on the runner, and kept on the `compare-images` branch as
+its reference; the next comparisons with that commit read them back. `actions/compare-images/scope`
+decides, before the drawing's setup, what to do and what to compare with:
 
-A new run replaces the comment, its images and the previous runs' pages. Closing the pull request
-deletes the images and the pages, and keeps the comment's numbers. `actions/compare-images/scope`
-decides beforehand, so a pull request that changes nothing drawn skips the setup too: it runs on a
-pull request that touches a file `paths` matches, or that carries `label`.
+| Event | Before | Where the comparison goes |
+|---|---|---|
+| a pull request touching `paths`, or labelled `label` | its target, with the pull request merged into it | a comment, with the images inline |
+| a comment `/compare-images` on a pull request, from the owner, a member or a collaborator | its target; `/compare-images start` where it branched; `/compare-images v1.2.0` any commit, branch or tag | a comment for that comparison |
+| a push to the default branch touching `paths` | none: the commit's images are kept as its reference | |
+| a release run that tagged `vX.Y.Z` | the previous release | the release's notes |
+| a manual run | its `before` input | the run's summary |
+| a pull request closed | | its images and pages are deleted, its comments keep their numbers |
+
+A new run replaces the comment of the same comparison, its images and its earlier pages. Every
+comparison also leaves the table in the run's summary and a page with each changed image under a
+curtain as an artifact. The branch holds a single commit rewritten each time
+(`tools/publish-images.sh`): one folder per open pull request, the newest 20 references and the
+newest 10 releases, and no history of old images.
 
 ```yaml
 name: Frames
 on:
+  push:
+    branches: [main]
   pull_request:
     types: [opened, synchronize, reopened, labeled, closed]
+  issue_comment:
+    types: [created]
+  workflow_run:
+    workflows: [Release]
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      before:
+        description: A commit, branch or tag to compare with
+        default: main
 permissions:
   contents: write
   pull-requests: write
   actions: write
 jobs:
   compare:
-    if: github.event.pull_request.head.repo.full_name == github.repository
+    if: >-
+      github.event_name != 'issue_comment' ||
+      github.event.issue.pull_request && startsWith(github.event.comment.body, '/compare-images')
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
           persist-credentials: false
+          ref: >-
+            ${{ github.event_name == 'issue_comment' && format('refs/pull/{0}/merge', github.event.issue.number) ||
+            github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || '' }}
       - id: scope
         uses: MasterLaplace/.github/actions/compare-images/scope@<commit> # main
         with:
           paths: '^(render|samples|engine)/'
           label: frames
+          before: ${{ inputs.before }}
       # the setup the drawing needs, under: if: steps.scope.outputs.run == 'true'
       - if: steps.scope.outputs.run == 'true' || steps.scope.outputs.closed == 'true'
         uses: MasterLaplace/.github/actions/compare-images@<commit> # main
         with:
           title: Reference frames
+          before: ${{ steps.scope.outputs.before }}
           draw: xmake run lpl-frames --write "$IMAGES_DIR"
           comment-when: ${{ steps.scope.outputs.labelled == 'true' && 'always' || 'changed' }}
 ```
 
-Its other inputs: `threshold` (0.1), `comment` (`replace`, `update` or `off`), `images-branch`
-(empty for a comment without images), `retention-days` (14) and `fail-on-change` (false: a changed
-image is for the reviewer to judge).
+Its other inputs: `threshold` (0.1), `comment` (`replace`, `update` or `off`), `release-notes`
+(true), `images-branch`, `keep-references` (20), `keep-releases` (10), `retention-days` (14) and
+`fail-on-change` (false: a changed image is for the reviewer to judge).
 
 ```bash
 python3 tools/compare-images.py --draw 'xmake run lpl-frames --write "$IMAGES_DIR"' --before main   # from a repository's root
