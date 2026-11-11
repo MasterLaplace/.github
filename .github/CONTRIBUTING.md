@@ -82,7 +82,9 @@ and `tools/check-config-header.sh` refuses a copy where it has drifted.
   is written.
 - **No capability without a caller outside the tests.** A function, a format field or a code path
   ships with the code that uses it; until then it is not written, because nothing can tell when it is
-  wrong.
+  wrong. A guard, a fallback or the handling of a state the planned work will reach is not such a
+  capability: it stays and fails loudly, and when the test bench cannot reach the state, a pure function
+  carries the decision so that a test can.
 
 ## Data and formats
 
