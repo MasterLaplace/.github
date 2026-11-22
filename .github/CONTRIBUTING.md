@@ -54,14 +54,24 @@ section.
 The version is written once, in the repository's `config.h`, a copy of
 [templates/config.h](https://github.com/MasterLaplace/.github/blob/main/templates/config.h): the build, the release and `CITATION.cff` read it
 there, and every binary carries it. A repository without C code has no `config.h`: its version is the
-one its `CITATION.cff` gives, and the release reads it there. The pull request that changes what another repository or a user
-can see raises it, sets `version` and `date-released` in `CITATION.cff`, and writes `CHANGELOG.md`
-with `tools/changelog.sh --tag vX.Y.Z --pending "<its title> (#<its number>)"`. Its release check
-refuses a citation or a changelog that disagrees; once it is merged, the same check tags the commit
-and publishes the release, whose notes are that version's section. A repository that needs another one says so in its own `config.h`, with
+one its `CITATION.cff` gives, and the release reads it there.
+
+A release gathers the pull requests merged since the last one, so a pull request leaves the version,
+`CITATION.cff` and `CHANGELOG.md` alone until a release is due: when another repository has to
+require what changed, because it is about to call something no release holds yet, or when enough has
+gathered to be worth a release. The pull request that makes it due raises the version, sets `version`
+and `date-released` in `CITATION.cff`, and writes `CHANGELOG.md` with
+`tools/changelog.sh --tag vX.Y.Z --pending "<its title> (#<its number>)"`, which files every pull
+request since the last release under the new version. Its release check refuses a citation or a
+changelog that disagrees; once it is merged, the same check tags the commit and publishes the
+release, whose notes are that version's section.
+
+A repository that needs another one says so in its own `config.h`, with
 `<PREFIX>_COMPATIBLE_WITH(major, minor, patch)`: at least that version, in the same major, checked by
-the compiler whatever the build system. Only the shared part of a `config.h` comes from the template,
-and `tools/check-config-header.sh` refuses a copy where it has drifted.
+the compiler whatever the build system. It may build with a commit past that release, as a lock file
+names one, and requires a newer version only once it calls something that only the newer one holds.
+Only the shared part of a `config.h` comes from the template, and `tools/check-config-header.sh`
+refuses a copy where it has drifted.
 
 ## Evidence
 
